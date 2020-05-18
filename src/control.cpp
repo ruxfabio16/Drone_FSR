@@ -35,14 +35,23 @@ QUAD_CTRL::QUAD_CTRL() {
 
 void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
 
+    tf::Matrix3x3 RNed;
+    RNed.setEulerYPR(0,M_PI,0);
+    tf::Vector3 p;
+
     tf::Quaternion q(odom->pose.pose.orientation.x, odom->pose.pose.orientation.y, odom->pose.pose.orientation.z,  odom->pose.pose.orientation.w);
     tf::Matrix3x3 Rb(q);
+    Rb = RNed*Rb;
     Rb.getRPY(_Eta(0), _Eta(1), _Eta(2));
 
-    _P(0) = odom->pose.pose.position.x;
-    _P(1) = odom->pose.pose.position.y;
-    _P(2) = odom->pose.pose.position.z;
+    p[0] = odom->pose.pose.position.x;
+    p[1] = odom->pose.pose.position.y;
+    p[2] = odom->pose.pose.position.z;
 
+    p = RNed*p;
+    _P(0) = p[0];
+    _P(1) = p[1];
+    _P(2) = p[2];
 
 }
 

@@ -127,7 +127,7 @@ QUAD_PLAN::QUAD_PLAN(const double * boundaries) {
   _acc_pub = _nh.advertise<geometry_msgs::AccelStamped>("planned/Acceleration", 0);
   //_traject_pub = _nh.advertise<nav_msgs::Path>("trajectory", 0);
 
-	_Robot = std::shared_ptr<fcl::CollisionGeometry>(new fcl::Box(0.5, 0.5, 0.3));
+	_Robot = std::shared_ptr<fcl::CollisionGeometry>(new fcl::Cylinder(0.3, 0.3));
 	//fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree(0.05)));
   fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree("/home/eugenio/arena.binvox.bt")));
 	_tree_obj = std::shared_ptr<fcl::CollisionGeometry>(tree);
@@ -138,7 +138,7 @@ QUAD_PLAN::QUAD_PLAN(const double * boundaries) {
     _boundaries[i] = boundaries[i];
 
   _new_goal = false;
-  _tresh = 0.02;
+  _tresh = 0.05;
   _planned = false;
 }
 
@@ -370,7 +370,7 @@ void QUAD_PLAN::plan() {
   }
 
   generateTraj();
-  for (int i=0; i<100; i++)
+  for (int i=0; i<50; i++)
     filterPath();
 
   while( ros::ok() ) {
@@ -486,9 +486,9 @@ void QUAD_PLAN::generateTraj() {
 
       ros::Time clock(seconds,nsec);
 
-      pos.header.frame_id="Pose";
-      vel.header.frame_id="Velocity";
-      acc.header.frame_id="Acceleration";
+      pos.header.frame_id="map";
+      vel.header.frame_id="map";
+      acc.header.frame_id="map";
       pos.header.stamp=clock;
       vel.header.stamp=clock;
       acc.header.stamp=clock;
@@ -522,6 +522,7 @@ void QUAD_PLAN::debug_loop() {
   ros::Rate r(1000);
 
   while(!_planned) usleep(100);
+  ROS_INFO("Publishing trajectory");
 
   size_t size = poses.size();
 
@@ -533,4 +534,5 @@ void QUAD_PLAN::debug_loop() {
       r.sleep();
     }
   }
+
 }
