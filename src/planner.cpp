@@ -122,9 +122,9 @@ QUAD_PLAN::QUAD_PLAN(const double * boundaries) {
 
 	_path_pub = _nh.advertise<nav_msgs::Path>("path", 0);
   _filtered_path_pub = _nh.advertise<nav_msgs::Path>("filteredPath", 0);
-  _poses_pub = _nh.advertise<geometry_msgs::Pose>("planned/Pose", 0);
-  _vel_pub = _nh.advertise<geometry_msgs::Twist>("planned/Velocity", 0);
-  _acc_pub = _nh.advertise<geometry_msgs::Accel>("planned/Acceleration", 0);
+  _poses_pub = _nh.advertise<geometry_msgs::PoseStamped>("planned/Pose", 0);
+  _vel_pub = _nh.advertise<geometry_msgs::TwistStamped>("planned/Velocity", 0);
+  _acc_pub = _nh.advertise<geometry_msgs::AccelStamped>("planned/Acceleration", 0);
   //_traject_pub = _nh.advertise<nav_msgs::Path>("trajectory", 0);
 
 	_Robot = std::shared_ptr<fcl::CollisionGeometry>(new fcl::Box(0.5, 0.5, 0.3));
@@ -132,6 +132,7 @@ QUAD_PLAN::QUAD_PLAN(const double * boundaries) {
   fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree("/home/eugenio/arena.binvox.bt")));
 	_tree_obj = std::shared_ptr<fcl::CollisionGeometry>(tree);
 	//_octree_sub = _nh.subscribe<octomap_msgs::Octomap>("/octomap_binary", 1, &QUAD_PLAN::octomapCallback, this);
+
 
   for (int i=0; i<6; i++)
     _boundaries[i] = boundaries[i];
@@ -171,6 +172,7 @@ bool QUAD_PLAN::isStateValid(const Node* q1, const Node* q2)
 
 void QUAD_PLAN::run() {
 	boost::thread plan_t( &QUAD_PLAN::plan, this );
+  boost::thread debug_t ( &QUAD_PLAN::debug_loop, this);
 }
 
 void QUAD_PLAN::plan() {
@@ -389,14 +391,22 @@ void QUAD_PLAN::filterPath() {
   }
 }
 
+template <typename T> int sgn(T val) {
+    return (T(0) < val) - (val < T(0));
+}
+
 void QUAD_PLAN::generateTraj() {
   double stepTime = 0.001; // 1 ms
   double tf = 0.2;
+  uint32_t seconds = 0;
+  uint32_t nsec = 0;
+
 
   size_t nPoses = filtered_path.poses.size();
   for (int i=0; i<(nPoses-1); i++) {
     Vector3d pointi;
     Vector3d pointf;
+    Vector3d pointf1;
     pointi(0) = filtered_path.poses[i].pose.position.x;
     pointi(1) = filtered_path.poses[i].pose.position.y;
     pointi(2) = filtered_path.poses[i].pose.position.z;
@@ -405,12 +415,44 @@ void QUAD_PLAN::generateTraj() {
     pointf(1) = filtered_path.poses[i+1].pose.position.y;
     pointf(2) = filtered_path.poses[i+1].pose.position.z;
 
+    if (i<(nPoses-2)) {
+      pointf1(0) = filtered_path.poses[i+2].pose.position.x;
+      pointf1(1) = filtered_path.poses[i+2].pose.position.y;
+      pointf1(2) = filtered_path.poses[i+2].pose.position.z;
+    }
+
     std::vector<Vector4d> aVec;
+    Vector3d xp_old;
     for (int coord=0; coord<3; coord++) {
       double xi = pointi[coord];
       double xf = pointf[coord];
+      double xf1 = pointf1[coord];
       double xip = 0;
       double xfp = 0;
+
+      double vk = (xf-xi)/tf;
+      double vk1 = (xf1-xf)/tf;
+
+      if (i==0) {
+        xip = 0;
+        if (sgn(vk)!=sgn(vk1))
+          xfp = 0;
+        else
+          xfp = (vk+vk1)/2;
+      }
+      else if (i<(nPoses-2)) {
+        xip = xp_old[coord];
+        if (sgn(vk)!=sgn(vk1))
+          xfp = 0;
+        else
+          xfp = (vk+vk1)/2;
+      }
+      else {
+        xip = xp_old[coord];
+        xfp = 0;
+      }
+
+      xp_old[coord] = xfp;
 
       Vector4d a(0,0,0,0);
       Vector2d a23;
@@ -425,41 +467,70 @@ void QUAD_PLAN::generateTraj() {
       b(1) = xfp - a(1);
 
       a23 = A.inverse() * b;
-      a(2) = a23(0);
-      a(3) = a23(1);
+      a(2) = a23(1);
+      a(3) = a23(0);
 
       aVec.push_back(a);
     }
 
     for (double t=0; t<tf; t+=stepTime) {
-      geometry_msgs::Pose pos;
-      geometry_msgs::Twist vel;
-      geometry_msgs::Accel acc;
+      geometry_msgs::PoseStamped pos;
+      geometry_msgs::TwistStamped vel;
+      geometry_msgs::AccelStamped acc;
+
+      nsec += stepTime*1000000000;
+      if (nsec>1000000000) {
+        nsec = nsec - 1000000000;
+        seconds ++;
+      }
+
+      ros::Time clock(seconds,nsec);
+
+      pos.header.frame_id="Pose";
+      vel.header.frame_id="Velocity";
+      acc.header.frame_id="Acceleration";
+      pos.header.stamp=clock;
+      vel.header.stamp=clock;
+      acc.header.stamp=clock;
 
       Vector4d a = aVec[0];
-      pos.position.x = a(3)*t*t*t + a(2)*t*t + a(1)*t + a(0);
-      vel.linear.x = 3*a(3)*t*t + 2*a(2)*t + a(1);
-      acc.linear.x = 6*a(3)*t + 2*a(2);
+      pos.pose.position.x = a(3)*t*t*t + a(2)*t*t + a(1)*t + a(0);
+      vel.twist.linear.x = 3*a(3)*t*t + 2*a(2)*t + a(1);
+      acc.accel.linear.x = 6*a(3)*t + 2*a(2);
 
       a = aVec[1];
-      pos.position.y = a(3)*t*t*t + a(2)*t*t + a(1)*t + a(0);
-      vel.linear.y = 3*a(3)*t*t + 2*a(2)*t + a(1);
-      acc.linear.y = 6*a(3)*t + 2*a(2);
+      pos.pose.position.y = a(3)*t*t*t + a(2)*t*t + a(1)*t + a(0);
+      vel.twist.linear.y = 3*a(3)*t*t + 2*a(2)*t + a(1);
+      acc.accel.linear.y = 6*a(3)*t + 2*a(2);
 
       a = aVec[2];
-      pos.position.z = a(3)*t*t*t + a(2)*t*t + a(1)*t + a(0);
-      vel.linear.z = 3*a(3)*t*t + 2*a(2)*t + a(1);
-      acc.linear.z = 6*a(3)*t + 2*a(2);
+      pos.pose.position.z = a(3)*t*t*t + a(2)*t*t + a(1)*t + a(0);
+      vel.twist.linear.z = 3*a(3)*t*t + 2*a(2)*t + a(1);
+      acc.accel.linear.z = 6*a(3)*t + 2*a(2);
 
       poses.push_back(pos);
       velocities.push_back(vel);
       accelerations.push_back(acc);
 
-      _poses_pub.publish(pos);
-      _vel_pub.publish(vel);
-      _acc_pub.publish(acc);
     }
 
   }
 
+}
+
+void QUAD_PLAN::debug_loop() {
+  ros::Rate r(1000);
+
+  while(!_planned) usleep(100);
+
+  size_t size = poses.size();
+
+  while (ros::ok()) {
+    for(int i=0; i<size; i++) {
+      _poses_pub.publish(poses[i]);
+      _vel_pub.publish(velocities[i]);
+      _acc_pub.publish(accelerations[i]);
+      r.sleep();
+    }
+  }
 }

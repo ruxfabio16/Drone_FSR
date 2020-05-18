@@ -9,9 +9,9 @@
 #include "fcl/broadphase/broadphase.h"
 #include <octomap_msgs/conversions.h>
 #include <nav_msgs/Path.h>
-#include <geometry_msgs/Pose.h>
-#include <geometry_msgs/Twist.h>
-#include <geometry_msgs/Accel.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/TwistStamped.h>
+#include <geometry_msgs/AccelStamped.h>
 
 #include <random>
 #include <iostream>
@@ -36,9 +36,9 @@ class QUAD_PLAN {
         void setGoal(const double* init, const double * goal);
         nav_msgs::Path generated_path;
         nav_msgs::Path filtered_path;
-        std::vector<geometry_msgs::Pose> poses;
-        std::vector<geometry_msgs::Twist> velocities;
-        std::vector<geometry_msgs::Accel> accelerations;
+        std::vector<geometry_msgs::PoseStamped> poses;
+        std::vector<geometry_msgs::TwistStamped> velocities;
+        std::vector<geometry_msgs::AccelStamped> accelerations;
         bool isPlanned() {return _planned;};
     private:
         ros::NodeHandle _nh;
@@ -63,4 +63,5 @@ class QUAD_PLAN {
         bool isStateValid(const Node*, const Node*);
         void generateTraj();
         void filterPath();
+        void debug_loop();
 };

@@ -67,11 +67,9 @@ void QUAD_CTRL::ctrl_loop() {
 
 }
 
-
 void QUAD_CTRL::run() {
     boost::thread ctrl_loop_t ( &QUAD_CTRL::ctrl_loop, this);
 }
-
 
 int main( int argc, char** argv) {
 
