@@ -3,11 +3,23 @@
 #include "boost/thread.hpp"
 #include "mav_msgs/Actuators.h"
 #include <tf/tf.h>
+#include <tf_conversions/tf_eigen.h>
 #include <eigen3/Eigen/Dense>
 
 #include <nav_msgs/Path.h>
 
 #include "../include/quad_control/planner.h"
+
+double g = 9.81;
+
+Matrix3d Skew(Vector3d v) {
+  Matrix3d S;
+  S << 0, -v(3), v(2),
+       v(3), 0, -v(1),
+       -v(2), v(1), 0;
+
+  return S;
+}
 
 class QUAD_CTRL {
     public:
@@ -15,7 +27,10 @@ class QUAD_CTRL {
         void odom_cb( nav_msgs::OdometryConstPtr );
         void run();
         void ctrl_loop();
+        void setTraj(std::vector<geometry_msgs::PoseStamped> p, std::vector<geometry_msgs::TwistStamped> v, std::vector<geometry_msgs::AccelStamped> a);
+        bool isTrajReady() {return _traj_ready;};
     private:
+        void updateError();
         ros::NodeHandle _nh;
         ros::Subscriber _odom_sub;
         ros::Publisher _cmd_vel_pub;
@@ -24,6 +39,10 @@ class QUAD_CTRL {
         Vector3d _Eta;
         Vector3d _Eta_dot;
         Vector3d _wbb;
+        Matrix3d _Rb;
+        Matrix3d _RNed;
+        Vector3d _Ep;
+        Vector3d _Ev;
         //Vector3d _wb;
         Matrix3d _Q;
         Matrix4d _G;
@@ -32,11 +51,62 @@ class QUAD_CTRL {
         double _l;
         double _m;
         Matrix3d _I_b;
+        std::vector<geometry_msgs::PoseStamped> _poses;
+        std::vector<geometry_msgs::TwistStamped> _velocities;
+        std::vector<geometry_msgs::AccelStamped> _accelerations;
+        bool _traj_ready;
+        Vector3d _P_des, _Pd_des, _Pdd_des;
+        int _iter;
+        double _Kp, _Kv, _Kr, _Kw;
+        double _uT;
 };
+
+void QUAD_CTRL::updateError() {
+  Vector3d zb_des;
+  Vector3d yb_des;
+  Vector3d e3(0,0,1);
+
+  _P_des[0] = _poses[_iter].pose.position.x;
+  _P_des[1] = _poses[_iter].pose.position.y;
+  _P_des[2] = _poses[_iter].pose.position.z;
+
+  _P_des = _RNed * _P_des;
+
+  _Pd_des[0] = _velocities[_iter].twist.linear.x;
+  _Pd_des[1] = _velocities[_iter].twist.linear.y;
+  _Pd_des[2] = _velocities[_iter].twist.linear.z;
+
+  _Pd_des = _RNed*_Pd_des;
+
+  _Pdd_des[0] = _accelerations[_iter].accel.linear.x;
+  _Pdd_des[1] = _accelerations[_iter].accel.linear.y;
+  _Pdd_des[2] = _accelerations[_iter].accel.linear.z;
+
+  _Pdd_des = _RNed*_Pdd_des;
+
+  _Ep = _P - _P_des;
+  _Ev = _P_dot - _Pd_des;
+
+  zb_des = _Kp*_Ep + _Kv*_Ev + _m*g*e3 - _m*_Pdd_des;
+  _uT = zb_des.transpose() * _Rb * e3;
+  zb_des = zb_des/zb_des.norm();
+
+  //yb_des = Skew(zb_des)*
+}
+
+void QUAD_CTRL::setTraj(std::vector<geometry_msgs::PoseStamped> p, std::vector<geometry_msgs::TwistStamped> v, std::vector<geometry_msgs::AccelStamped> a) {
+  _poses = p;
+  _velocities = v;
+  _accelerations = a;
+  _traj_ready = true;
+}
 
 QUAD_CTRL::QUAD_CTRL() {
     _odom_sub = _nh.subscribe("/hummingbird/ground_truth/odometry", 0, &QUAD_CTRL::odom_cb, this);
     _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>("/hummingbird/command/motor_speed", 0);
+
+    _traj_ready = false;
+    _iter = 0;
 
     _P.resize(3);
     _Eta.resize(3);
@@ -56,6 +126,11 @@ QUAD_CTRL::QUAD_CTRL() {
     _G(2,0) = -_l*_c_T; _G(2,1) = 0;       _G(2,2) = _l*_c_T; _G(2,3) = 0;
     _G(3,0) = _c_a;    _G(3,1) = _c_a;    _G(3,2) = _c_a; _G(3,3) = _c_a;
 
+    _Kp = 10;
+    _Kv = _Kp/10;
+    _Kr = 10;
+    _Kw = _Kr/10;
+
 }
 
 void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
@@ -74,6 +149,8 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
     tf::Matrix3x3 RbNed = RNed*Rb*(RNed.transpose());
 
     RbNed.getRPY(_Eta(0), _Eta(1), _Eta(2)); //phi theta psi
+    tf::matrixTFToEigen (RbNed, _Rb);
+    tf::matrixTFToEigen (RNed, _RNed);
 
     p[0] = odom->pose.pose.position.x;
     p[1] = odom->pose.pose.position.y;
@@ -91,8 +168,8 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
     pDot[0] = odom->twist.twist.linear.x;
     pDot[1] = odom->twist.twist.linear.y;
     pDot[2] = odom->twist.twist.linear.z;
-    //pDot = RNed*Rb*pDot;
-    pDot = RbNed*pDot;
+    pDot = RNed*Rb*pDot;
+    //pDot = RNed*Rb*pDot*RNed.transpose();
 
     _P_dot(0) = pDot[0];
     _P_dot(1) = pDot[1];
@@ -102,24 +179,27 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
     wbb[1] = odom->twist.twist.angular.y;
     wbb[2] = odom->twist.twist.angular.z;
 
+    wbb = RNed * wbb * RNed.transpose();
+
     _wbb(0) = wbb[0];
     _wbb(1) = wbb[1];
     _wbb(2) = wbb[2];
 
-    wb = RbNed * wbb;
+    //wb = RbNed * wbb;
     _Eta_dot = _Q.inverse() * _wbb;
 
 
-    ROS_INFO("x: %f  y: %f z: %f",_P_dot(0),_P_dot(1),_P_dot(2));
-    //ROS_INFO("x: %f  y: %f z: %f",_P(0),_P(1),_P(2));
-    ROS_INFO("phi: %f  tetha: %f psi: %f",_Eta(0)*180.0/M_PI,_Eta(1)*180.0/M_PI,_Eta(2)*180.0/M_PI);
+    //ROS_INFO("x: %f  y: %f z: %f",_P_dot(0),_P_dot(1),_P_dot(2));
+    ROS_INFO("x: %f  y: %f z: %f",_P(0),_P(1),_P(2));
+    //ROS_INFO("phi: %f  tetha: %f psi: %f",_Eta(0)*180.0/M_PI,_Eta(1)*180.0/M_PI,_Eta(2)*180.0/M_PI);
 }
 
 void QUAD_CTRL::ctrl_loop() {
 
-  ros::Rate r(100);
+  ros::Rate r(1000);
   mav_msgs::Actuators comm;
   comm.angular_velocities.resize(4);
+
 
   /* Red: 0 poi gli 1-2-3 in senso antiorario
      0 frontale asse x - 1 frontale asse y
@@ -130,18 +210,23 @@ void QUAD_CTRL::ctrl_loop() {
 
   while( ros::ok() ) {
 
+    while(!isTrajReady()) usleep(1000);
 
 
-    comm.header.stamp = ros::Time::now();
-    //for (int i=0; i<4; i++) {
-      comm.angular_velocities[1] = 450;
-      comm.angular_velocities[2] = 450;
-      comm.angular_velocities[3] = 450;
-      comm.angular_velocities[0] = 0;
-    //}
 
-    _cmd_vel_pub.publish (comm);
-    r.sleep();
+
+      comm.header.stamp = ros::Time::now();
+      //for (int i=0; i<4; i++) {
+        comm.angular_velocities[1] = 450;
+        comm.angular_velocities[2] = 450;
+        comm.angular_velocities[3] = 450;
+        comm.angular_velocities[0] = 0;
+      //}
+
+      _cmd_vel_pub.publish (comm);
+      r.sleep();
+
+
   }
 
 }
@@ -166,6 +251,10 @@ int main( int argc, char** argv) {
     double init[] = {0,0,0,0};
     double goal[] = {3,3,3,M_PI};
     p.setGoal(init, goal);
+
+    while(!p.isPlanned()) usleep(1000);
+
+    c.setTraj(p.poses, p.velocities, p.accelerations);
 
     ros::spin();
 

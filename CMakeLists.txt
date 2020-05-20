@@ -19,6 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   roslib
 	tf
+  tf_conversions
   sensor_msgs
 	message_generation
 	actionlib
