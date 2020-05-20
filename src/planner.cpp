@@ -398,6 +398,7 @@ template <typename T> int sgn(T val) {
 void QUAD_PLAN::generateTraj() {
   double stepTime = 0.001; // 1 ms
   double tf = 0.2;
+  double absolT=0;
   uint32_t seconds = 0;
   uint32_t nsec = 0;
 
@@ -478,6 +479,7 @@ void QUAD_PLAN::generateTraj() {
       geometry_msgs::TwistStamped vel;
       geometry_msgs::AccelStamped acc;
 
+      absolT += stepTime;
       nsec += stepTime*1000000000;
       if (nsec>1000000000) {
         nsec = nsec - 1000000000;
@@ -514,6 +516,47 @@ void QUAD_PLAN::generateTraj() {
 
     }
 
+  }
+
+  nPoses = poses.size();
+  tf=absolT;
+  double t=0;
+  double xi = _init_pose[3];
+  double xf = _goal_pose[3];
+  double xip = 0;
+  double xfp = 0;
+
+  Vector4d a(0,0,0,0);
+  Vector2d a23;
+  Vector2d b;
+  Matrix2d A;
+  a(0) = xi;
+  a(1) = xip;
+
+  A(0,0) = tf*tf*tf; A(0,1) = tf*tf;
+  A(1,0) = 3*tf*tf;  A(1,1) = 2*tf;
+  b(0) = xf - a(0) - a(1)*tf;
+  b(1) = xfp - a(1);
+
+  a23 = A.inverse() * b;
+  a(2) = a23(1);
+  a(3) = a23(0);
+
+  for (int i=0; i<nPoses; i++) {
+
+    double yaw = a(3)*t*t*t + a(2)*t*t + a(1)*t + a(0);
+
+    tf::Quaternion quat;
+    quat.setRPY(0,0,yaw);
+    poses[i].pose.orientation.x = quat[0];
+    poses[i].pose.orientation.y = quat[1];
+    poses[i].pose.orientation.z = quat[2];
+    poses[i].pose.orientation.w = quat[3];
+
+    velocities[i].twist.angular.z = 3*a(3)*t*t + 2*a(2)*t + a(1);
+    accelerations[i].accel.angular.z = 6*a(3)*t + 2*a(2);
+
+    t+=stepTime;
   }
 
 }
