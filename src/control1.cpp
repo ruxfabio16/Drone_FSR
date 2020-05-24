@@ -82,7 +82,6 @@ class QUAD_CTRL {
         Vector3d _tau_b;
         bool _isSettingTraj;
         tf::Quaternion _q_des;
-        mav_msgs::Actuators _comm;
 };
 
 void QUAD_CTRL::getPose(double * Pose) {
@@ -115,7 +114,7 @@ void QUAD_CTRL::updateError() {
   Vector3d wbbd_des;
   Vector3d etadd_des;
 
-  //if (!_traj_completed) {
+  if (!_traj_completed) {
     _P_des[0] = _poses[_iter].pose.position.x;
     _P_des[1] = _poses[_iter].pose.position.y;
     _P_des[2] = _poses[_iter].pose.position.z;
@@ -133,7 +132,7 @@ void QUAD_CTRL::updateError() {
     _Pdd_des[2] = _accelerations[_iter].accel.linear.z;
 
     _Pdd_des = _RNed*_Pdd_des;
-  //}
+  }
 
   _Ep = _P - _P_des;
   _Ev = _P_dot - _Pd_des;
@@ -144,12 +143,12 @@ void QUAD_CTRL::updateError() {
   _uT = zb_des.transpose() * _Rb * e3;
   zb_des = zb_des/zb_des.norm();
 
-  //if(!_traj_completed) {
+  if(!_traj_completed) {
     tf::Quaternion q_des(_poses[_iter].pose.orientation.x, _poses[_iter].pose.orientation.y, _poses[_iter].pose.orientation.z,  _poses[_iter].pose.orientation.w);
     _q_des = q_des;
     _etaDot_des << 0,0,_velocities[_iter].twist.angular.z;
     _etadd_des << 0,0,_accelerations[_iter].accel.angular.z;
-  //}
+  }
   tf::Matrix3x3 Rb_des_tf(_q_des);
   //Rb_des_tf.getRPY(eta_des(0), eta_des(1), eta_des(2)); //phi theta psi
   tf::matrixTFToEigen(Rb_des_tf,Rb_des);
@@ -177,6 +176,9 @@ void QUAD_CTRL::updateError() {
   Q_des(2,0) = 0; Q_des(2,1) = -sin(eta_des(0)); Q_des(2,2) = cos(eta_des(1))*cos(eta_des(0));
 
   wbb_des = Q_des * _etaDot_des;
+/*  wbb_des = _RNed * wbb_des ;
+  wbb_des =  wbb_des.transpose() * (_RNed.transpose());
+  wbb_des << 0,0,0; */
   Vector3d appo(wbb_des(1),wbb_des(0),-wbb_des(2));
   wbb_des = appo;
   _wbb_des = wbb_des;
@@ -187,6 +189,9 @@ void QUAD_CTRL::updateError() {
   Qd_des(2,0) = 0; Qd_des(2,1) = -cos(eta_des(0))*_etaDot_des(0);  Qd_des(2,2) = -sin(eta_des(1))*_etaDot_des(1)*cos(eta_des(0)) - cos(eta_des(1))*_etaDot_des(0)*sin(eta_des(0));
 
   wbbd_des = Qd_des * _etaDot_des + Q_des * _etadd_des;
+/*  wbbd_des = _RNed * wbbd_des ;
+  wbbd_des = wbbd_des.transpose() * _RNed.transpose();
+  wbbd_des << 0,0,0; */
   Vector3d appo1(wbbd_des(1),wbbd_des(0),-wbbd_des(2));
   wbbd_des = appo1;
   _wbbd_des = wbbd_des;
@@ -198,7 +203,7 @@ void QUAD_CTRL::updateError() {
   //cout<<_Er<<endl;
   //cout<<_Ep<<endl;
   //cout<<"Meas: "<<_Eta(2)<<" - Des: "<<eta_des(2)<<endl;
-  if (_iter < (_poses.size() - 1)) _iter++;
+  if (!_traj_completed && _iter < (_poses.size() - 1)) _iter++;
   else if (!_traj_completed) {
     _traj_completed = true;
     _traj_ready = false;
@@ -209,16 +214,17 @@ void QUAD_CTRL::updateError() {
 }
 
 void QUAD_CTRL::setTraj(std::vector<geometry_msgs::PoseStamped> p, std::vector<geometry_msgs::TwistStamped> v, std::vector<geometry_msgs::AccelStamped> a) {
+  _poses.clear();
+  _velocities.clear();
+  _accelerations.clear();
 
-  for (int i=0; i<p.size(); i++) {
-    _poses.push_back(p[i]);
-    _velocities.push_back(v[i]);
-    _accelerations.push_back(a[i]);
-  }
+  _poses = p;
+  _velocities = v;
+  _accelerations = a;
 
   _traj_ready = true;
   _traj_completed = false;
-  //_iter = 0;
+  _iter = 0;
 }
 
 QUAD_CTRL::QUAD_CTRL() {
@@ -321,11 +327,12 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
 void QUAD_CTRL::ctrl_loop() {
 
   ros::Rate r(TimeRate);
-  _comm.angular_velocities.resize(4);
-  _comm.angular_velocities[0] = 0;
-  _comm.angular_velocities[1] = 0;
-  _comm.angular_velocities[2] = 0;
-  _comm.angular_velocities[3] = 0;
+  mav_msgs::Actuators comm;
+  comm.angular_velocities.resize(4);
+  comm.angular_velocities[0] = 0;
+  comm.angular_velocities[1] = 0;
+  comm.angular_velocities[2] = 0;
+  comm.angular_velocities[3] = 0;
   Vector4d w2, controlInput;
 
 
@@ -337,7 +344,7 @@ void QUAD_CTRL::ctrl_loop() {
   ROS_INFO("Controllo attivo");
 
   while(!isTrajReady() || !_odomOk) {
-    _cmd_vel_pub.publish (_comm);
+    //_cmd_vel_pub.publish (comm);
     usleep(1000);
   }
 
@@ -351,43 +358,40 @@ void QUAD_CTRL::ctrl_loop() {
       controlInput(3) = _tau_b(2);
 
       w2 = _G.inverse() * controlInput;
-//cout<<_Ep<<endl;
-      _comm.header.stamp = ros::Time::now();
-    /*  _comm.angular_velocities[0] = sqrt(w2(3));
-      _comm.angular_velocities[1] = sqrt(w2(2));
-      _comm.angular_velocities[2] = sqrt(w2(1));
-      _comm.angular_velocities[3] = sqrt(w2(0)); */
 
-      if (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0) {
-        _comm.angular_velocities[0] = sqrt(w2(3));
-        _comm.angular_velocities[1] = sqrt(w2(2));
-        _comm.angular_velocities[2] = sqrt(w2(1));
-        _comm.angular_velocities[3] = sqrt(w2(0));
+      comm.header.stamp = ros::Time::now();
+      comm.angular_velocities[0] = sqrt(w2(3));
+      comm.angular_velocities[1] = sqrt(w2(2));
+      comm.angular_velocities[2] = sqrt(w2(1));
+      comm.angular_velocities[3] = sqrt(w2(0));
+
+      if (!(w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0)) {
+        comm.angular_velocities[0] = 0;
+        comm.angular_velocities[1] = 0;
+        comm.angular_velocities[2] = 0;
+        comm.angular_velocities[3] = 0;
+        _cmd_vel_pub.publish (comm);
       }
-      else {
-        ROS_WARN("w problem");
-        //cout<<controlInput<<endl;
-        cout<<_Ep<<endl;
-      }
-      //assert (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0);
+      assert (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0);
+      _cmd_vel_pub.publish (comm);
     }
     else {
-      _comm.header.stamp = ros::Time::now();
-      bool landed = true;
-      
+      comm.header.stamp = ros::Time::now();
       for (int i=0; i<4; i++) {
-        _comm.angular_velocities[i] = _comm.angular_velocities[i]-1;
-        if (_comm.angular_velocities[i]<0) {
-           _comm.angular_velocities[i] = 0;
+        comm.angular_velocities[i] = comm.angular_velocities[i]-1;
+        if (comm.angular_velocities[i]<0) {
+           comm.angular_velocities[i] = 0;
+           _landed = true;
         }
-        else landed = false;
       }
-
-      if(landed) _landed = true;
     }
 
-    _cmd_vel_pub.publish (_comm);
-    r.sleep();
+      //ROS_INFO("w1: %f, w2:%f, w3:%f, w4:%f\n",comm.angular_velocities[0],comm.angular_velocities[1],comm.angular_velocities[2],comm.angular_velocities[3]);
+      //cout<< controlInput<<endl;
+      //cout<<"Meas:"<<endl<<_P_dot<<endl;
+      //cout<<"Des:"<<endl<<_Pd_des<<endl;
+      //_odomOk = false;
+      r.sleep();
   }
 
 }
@@ -411,8 +415,8 @@ int main( int argc, char** argv) {
     std::array<double, 4> point1 = {2,0,1,0};
     std::array<double, 4> point2 = {5.4,1.4,0.06,0};
     wayPoints.push_back(point2);
-    //wayPoints.push_back(point1);
-    //wayPoints.push_back(point0);
+    wayPoints.push_back(point1);
+    wayPoints.push_back(point0);
 
     QUAD_CTRL c;
 
@@ -430,7 +434,7 @@ int main( int argc, char** argv) {
       p.run();
 
       c.getPose(init);
-      //cout<<endl<<init[0]<<" "<<init[1]<<" "<<init[2]<<" "<<init[3]<<endl;
+      cout<<endl<<init[0]<<" "<<init[1]<<" "<<init[2]<<" "<<init[3]<<endl;
       p.setGoal(init, goal);
       while(!p.isPlanned()) usleep(1000);
 
@@ -439,7 +443,7 @@ int main( int argc, char** argv) {
 
       //TODO FLIP
       ROS_WARN("WAYPOINT REACHED!");
-      sleep(1);
+      //sleep(10);
     }
 
     c.land();

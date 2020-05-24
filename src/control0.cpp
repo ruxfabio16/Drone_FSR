@@ -3,23 +3,32 @@
 #include "boost/thread.hpp"
 #include "mav_msgs/Actuators.h"
 #include <tf/tf.h>
+#include <tf_conversions/tf_eigen.h>
+#include <tf/transform_listener.h>
 #include <eigen3/Eigen/Dense>
 
-#include "fcl/config.h"
-#include "fcl/octree.h"
-#include "fcl/collision.h"
-#include "fcl/broadphase/broadphase.h"
-#include <octomap_msgs/conversions.h>
 #include <nav_msgs/Path.h>
 
-#include <random>
-#include <iostream>
-#include <ctime>
+#include "../include/quad_control/planner.h"
 
+double g = 9.81;
 
+Matrix3d Skew(Vector3d v) {
+  Matrix3d S;
+  S << 0, -v(2), v(1),
+       v(2), 0, -v(0),
+       -v(1), v(0), 0;
 
-using namespace std;
-using namespace Eigen;
+  return S;
+}
+
+Vector3d Vee(Matrix3d S) {
+  Vector3d v;
+  v<<S(2,1),S(0,2),S(1,0);
+  //cout<<S<<endl;
+  return v;
+}
+
 
 class QUAD_CTRL {
     public:
@@ -27,7 +36,10 @@ class QUAD_CTRL {
         void odom_cb( nav_msgs::OdometryConstPtr );
         void run();
         void ctrl_loop();
+        void setTraj(std::vector<geometry_msgs::PoseStamped> p, std::vector<geometry_msgs::TwistStamped> v, std::vector<geometry_msgs::AccelStamped> a);
+        bool isTrajReady() {return _traj_ready;};
     private:
+        void updateError();
         ros::NodeHandle _nh;
         ros::Subscriber _odom_sub;
         ros::Publisher _cmd_vel_pub;
@@ -35,438 +47,319 @@ class QUAD_CTRL {
         Vector3d _P_dot;
         Vector3d _Eta;
         Vector3d _Eta_dot;
+        Vector3d _wbb;
+        Matrix3d _Rb;
+        Matrix3d _RNed;
+        Vector3d _Ep;
+        Vector3d _Ev;
+        Vector3d _Er, _Ew;
+        //Vector3d _wb;
+        Matrix3d _Q;
+        Matrix4d _G;
+        double _c_T;
+        double _c_a;
+        double _l;
+        double _m;
+        Matrix3d _I_b;
+        std::vector<geometry_msgs::PoseStamped> _poses;
+        std::vector<geometry_msgs::TwistStamped> _velocities;
+        std::vector<geometry_msgs::AccelStamped> _accelerations;
+        bool _traj_ready;
+        bool _odomOk;
+        Vector3d _P_des, _Pd_des, _Pdd_des;
+        int _iter;
+        double _Kp, _Kv, _Kr, _Kw;
+        double _uT;
+        Vector3d _tau_b;
+        tf::Transformer transf;
+        tf::TransformListener listener;
 };
+
+void QUAD_CTRL::updateError() {
+  Vector3d zb_des;
+  Vector3d yb_des;
+  Vector3d xb_des;
+  Vector3d e3(0,0,1);
+  Matrix3d Rb_des;
+  Matrix3d Q_des;
+  Matrix3d Qd_des;
+  Vector3d wbb_des;
+  Vector3d etaDot_des;
+  Vector3d eta_des;
+  Vector3d wbbd_des;
+  Vector3d etadd_des;
+
+  _P_des[0] = _poses[_iter].pose.position.x;
+  _P_des[1] = _poses[_iter].pose.position.y;
+  _P_des[2] = _poses[_iter].pose.position.z;
+
+  _P_des = _RNed * _P_des;
+
+  _Pd_des[0] = _velocities[_iter].twist.linear.x;
+  _Pd_des[1] = _velocities[_iter].twist.linear.y;
+  _Pd_des[2] = _velocities[_iter].twist.linear.z;
+
+  _Pd_des = _RNed*_Pd_des;
+  //_Pd_des<<0,0,0;
+
+  _Pdd_des[0] = _accelerations[_iter].accel.linear.x;
+  _Pdd_des[1] = _accelerations[_iter].accel.linear.y;
+  _Pdd_des[2] = _accelerations[_iter].accel.linear.z;
+
+  _Pdd_des = _RNed*_Pdd_des;
+  //_Pdd_des<<0,0,0;
+
+  _Ep = _P - _P_des;
+  _Ev = _P_dot - _Pd_des;
+  //cout<<_Ep<<endl;
+  //cout<<_P<<endl;
+  //cout<<_Pdd_des<<endl;
+  zb_des = _Kp*_Ep + _Kv*_Ev + _m*g*e3 - _m*_Pdd_des;
+  _uT = zb_des.transpose() * _Rb * e3;
+  zb_des = zb_des/zb_des.norm();
+
+  tf::Quaternion q_des(_poses[_iter].pose.orientation.x, _poses[_iter].pose.orientation.y, _poses[_iter].pose.orientation.z,  _poses[_iter].pose.orientation.w);
+  tf::Matrix3x3 Rb_des_tf(q_des);
+  etaDot_des << 0,0,_velocities[_iter].twist.angular.z;
+  etadd_des << 0,0,_accelerations[_iter].accel.angular.z;
+//  Rb_des_tf.getRPY(eta_des(0), eta_des(1), eta_des(2)); //phi theta psi
+  tf::matrixTFToEigen(Rb_des_tf,Rb_des);
+
+  Rb_des = _RNed*Rb_des*(_RNed.transpose()); //Rb NED transform
+
+  xb_des = Rb_des.col(0);
+  yb_des = zb_des.cross(xb_des);
+  yb_des = yb_des / yb_des.norm();
+  xb_des = yb_des.cross(zb_des);
+  Rb_des << xb_des(0), yb_des(0), zb_des(0),
+            xb_des(1), yb_des(1), zb_des(1),
+            xb_des(2), yb_des(2), zb_des(2);
+            //cout<<Rb_des<<endl;
+  //Rb_des = _RNed*Rb_des*(_RNed.transpose()); //Rb NED transform
+
+
+  Matrix3d Rb_des_noNED = (_RNed.transpose())*Rb_des*_RNed;
+  tf::Matrix3x3 Rb_des_noNED_tf;
+  tf::matrixEigenToTF(Rb_des_noNED,Rb_des_noNED_tf);
+  Rb_des_noNED_tf.getRPY(eta_des(0), eta_des(1), eta_des(2)); //phi theta psi
+
+  Q_des(0,0) = 1; Q_des(0,1) = 0;                Q_des(0,2) = -sin(eta_des(1));
+  Q_des(1,0) = 0; Q_des(1,1) = cos(eta_des(0));  Q_des(1,2) = cos(eta_des(1))*sin(eta_des(0));
+  Q_des(2,0) = 0; Q_des(2,1) = -sin(eta_des(0)); Q_des(2,2) = cos(eta_des(1))*cos(eta_des(0));
+
+  wbb_des = Q_des * etaDot_des;
+/*  wbb_des = _RNed * wbb_des ;
+  wbb_des =  wbb_des.transpose() * (_RNed.transpose());
+  wbb_des << 0,0,0; */
+  Vector3d appo(wbb_des(1),wbb_des(0),-wbb_des(2));
+  wbb_des = appo;
+  //wbb_des << 0,0,0;
+
+  Qd_des(0,0) = 0; Qd_des(0,1) = 0;                               Qd_des(0,2) = -cos(eta_des(1))*etaDot_des(1);
+  Qd_des(1,0) = 0; Qd_des(1,1) = -sin(eta_des(0))*etaDot_des(0);  Qd_des(1,2) = -sin(eta_des(1))*etaDot_des(1)*sin(eta_des(0)) + cos(eta_des(1))*etaDot_des(0)*cos(eta_des(0));
+  Qd_des(2,0) = 0; Qd_des(2,1) = -cos(eta_des(0))*etaDot_des(0);  Qd_des(2,2) = -sin(eta_des(1))*etaDot_des(1)*cos(eta_des(0)) - cos(eta_des(1))*etaDot_des(0)*sin(eta_des(0));
+
+  wbbd_des = Qd_des * etaDot_des + Q_des * etadd_des;
+/*  wbbd_des = _RNed * wbbd_des ;
+  wbbd_des = wbbd_des.transpose() * _RNed.transpose();
+  wbbd_des << 0,0,0; */
+  Vector3d appo1(wbbd_des(1),wbbd_des(0),-wbbd_des(2));
+  wbbd_des = appo1;
+
+
+  _Er = 0.5*Vee(Rb_des.transpose()*_Rb - _Rb.transpose()*Rb_des);
+  _Ew = _wbb - _Rb.transpose()*Rb_des*wbb_des;
+
+  _tau_b = -_Kr*_Er - _Kw*_Ew + Skew(_wbb)*_I_b*_wbb - _I_b*( Skew(_wbb)*_Rb.transpose()*Rb_des*wbb_des - _Rb.transpose()*Rb_des*wbbd_des );
+  //cout<<_Er<<endl;
+  //cout<<_Ew;
+  if (_iter < (_poses.size() - 5)) _iter++;
+
+}
+
+void QUAD_CTRL::setTraj(std::vector<geometry_msgs::PoseStamped> p, std::vector<geometry_msgs::TwistStamped> v, std::vector<geometry_msgs::AccelStamped> a) {
+  _poses = p;
+  _velocities = v;
+  _accelerations = a;
+  _traj_ready = true;
+}
 
 QUAD_CTRL::QUAD_CTRL() {
     _odom_sub = _nh.subscribe("/hummingbird/ground_truth/odometry", 0, &QUAD_CTRL::odom_cb, this);
     _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>("/hummingbird/command/motor_speed", 0);
 
+    _traj_ready = false;
+    _odomOk = false;
+    _iter = 0;
+
     _P.resize(3);
     _Eta.resize(3);
+
+    _l = 0.17; //meters
+    _c_T = 8.06428e-06;
+    _c_a = 0.016;
+    _m = 0.68;//0.68; //Kg
+
+    //Inertia matrix
+    _I_b << 0.007, 0, 0,
+           0, 0.007, 0,
+           0, 0, 0.012;
+
+    _G(0,0) = _c_T;    _G(0,1) = _c_T;    _G(0,2) = _c_T; _G(0,3) = _c_T;
+    _G(1,0) = 0;       _G(1,1) = _l*_c_T; _G(1,2) = 0;    _G(1,3) = -_l*_c_T;
+    _G(2,0) = -_l*_c_T; _G(2,1) = 0;       _G(2,2) = _l*_c_T; _G(2,3) = 0;
+    _G(3,0) = -_c_a;    _G(3,1) = _c_a;    _G(3,2) = -_c_a; _G(3,3) = _c_a;
+
+    _Kp = 2;
+    _Kv = 0.6;//_Kp/3;
+    _Kr = 0.5;
+    _Kw = 0.1;//_Kr/3;
+
 }
 
 void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
 
+    tf::Matrix3x3 RNed;
+    RNed.setEulerYPR(M_PI/2,0,M_PI);
+    //RNed = RNed.transpose();
+    tf::Vector3 p;
+    tf::Vector3 pDot;
+    tf::Vector3 wbb;
+    tf::Vector3 wb;
+    tf::Vector3 etaDot;
+
     tf::Quaternion q(odom->pose.pose.orientation.x, odom->pose.pose.orientation.y, odom->pose.pose.orientation.z,  odom->pose.pose.orientation.w);
     tf::Matrix3x3 Rb(q);
-    Rb.getRPY(_Eta(0), _Eta(1), _Eta(2));
+    tf::Matrix3x3 RbNed = RNed*Rb*(RNed.transpose());
 
-    _P(0) = odom->pose.pose.position.x;
-    _P(1) = odom->pose.pose.position.y;
-    _P(2) = odom->pose.pose.position.z;
+    RbNed.getRPY(_Eta(0), _Eta(1), _Eta(2)); //phi theta psi
+    tf::matrixTFToEigen (RbNed, _Rb);
+    tf::matrixTFToEigen (RNed, _RNed);
 
 
+    p[0] = odom->pose.pose.position.x;
+    p[1] = odom->pose.pose.position.y;
+    p[2] = odom->pose.pose.position.z;
+
+    p = RNed*p;
+    _P(0) = p[0];
+    _P(1) = p[1];
+    _P(2) = p[2];
+
+    _Q(0,0) = 1; _Q(0,1) = 0;             _Q(0,2) = -sin(_Eta(1));
+    _Q(1,0) = 0; _Q(1,1) = cos(_Eta(0));  _Q(1,2) = cos(_Eta(1))*sin(_Eta(0));
+    _Q(2,0) = 0; _Q(2,1) = -sin(_Eta(0)); _Q(2,2) = cos(_Eta(1))*cos(_Eta(0));
+
+    pDot[0] = odom->twist.twist.linear.x;
+    pDot[1] = odom->twist.twist.linear.y;
+    pDot[2] = odom->twist.twist.linear.z;
+    //cout<<odom->twist.twist.linear.x;
+    pDot = RNed*Rb*pDot;
+    //cout<<pDot[0];
+    //pDot = RNed*Rb*pDot*RNed.transpose();
+
+    _P_dot(0) = pDot[0];
+    _P_dot(1) = pDot[1];
+    _P_dot(2) = pDot[2];
+
+
+/*    wbb[0] = odom->twist.twist.angular.x;
+    wbb[1] = odom->twist.twist.angular.y;
+    wbb[2] = odom->twist.twist.angular.z;
+
+
+    wbb = RNed * wbb * RNed.transpose(); */
+
+    wbb[0] = odom->twist.twist.angular.y;
+    wbb[1] = odom->twist.twist.angular.x;
+    wbb[2] = -odom->twist.twist.angular.z;
+
+    _wbb(0) = wbb[0];
+    _wbb(1) = wbb[1];
+    _wbb(2) = wbb[2];
+
+    //wb = RbNed * wbb;
+    _Eta_dot = _Q.inverse() * _wbb;
+
+    _odomOk = true;
+    //ROS_INFO("x: %f  y: %f z: %f",_P_dot(0),_P_dot(1),_P_dot(2));
+    //ROS_INFO("x: %f  y: %f z: %f",_P(0),_P(1),_P(2));
+    //ROS_INFO("phi: %f  tetha: %f psi: %f",_Eta(0)*180.0/M_PI,_Eta(1)*180.0/M_PI,_Eta(2)*180.0/M_PI);
 }
 
 void QUAD_CTRL::ctrl_loop() {
 
-  ros::Rate r(100);
+  ros::Rate r(TimeRate);
   mav_msgs::Actuators comm;
   comm.angular_velocities.resize(4);
+  comm.angular_velocities[0] = 0;
+  comm.angular_velocities[1] = 0;
+  comm.angular_velocities[2] = 0;
+  comm.angular_velocities[3] = 0;
+  Vector4d w2, controlInput;
+
+
+  /* Red: 0 poi gli 1-2-3 in senso antiorario
+     0 frontale asse x - 1 frontale asse y
+     NED: 1 frontale asse x - 0 frontale asse y
+          w1 = 1, w4 = 2, w3 = 3, w2 = 0*/
 
   ROS_INFO("Controllo attivo");
 
   while( ros::ok() ) {
-    //ROS_INFO("CLIK plugin started!");
-    comm.header.stamp = ros::Time::now();
-    for (int i=0; i<4; i++) {
-      comm.angular_velocities[i] = 450;
+
+    while(!isTrajReady() || !_odomOk) {
+      _cmd_vel_pub.publish (comm);
+      usleep(100);
     }
 
-    _cmd_vel_pub.publish (comm);
-    r.sleep();
+    updateError();
+    controlInput(0) = _uT;
+    controlInput(1) = _tau_b(0);
+    controlInput(2) = _tau_b(1);
+    controlInput(3) = _tau_b(2);
+
+    w2 = _G.inverse() * controlInput;
+
+    cout<< controlInput;
+
+      comm.header.stamp = ros::Time::now();
+      //for (int i=0; i<4; i++) {
+    /*    comm.angular_velocities[0] = sqrt(w2(1));
+        comm.angular_velocities[1] = sqrt(w2(0));
+        comm.angular_velocities[2] = sqrt(w2(3));
+        comm.angular_velocities[3] = sqrt(w2(2)); */
+        comm.angular_velocities[0] = sqrt(w2(3));
+        comm.angular_velocities[1] = sqrt(w2(2));
+        comm.angular_velocities[2] = sqrt(w2(1));
+        comm.angular_velocities[3] = sqrt(w2(0));
+      //}
+      //if (sqrt(w2(0))>10) {
+        ROS_INFO("w1: %f, w2:%f, w3:%f, w4:%f\n",comm.angular_velocities[0],comm.angular_velocities[1],comm.angular_velocities[2],comm.angular_velocities[3]);
+        //cout<< controlInput<<endl;
+        //cout<<"Meas:"<<endl<<_P_dot<<endl;
+        //cout<<"Des:"<<endl<<_Pd_des<<endl;
+      //}
+      if (!(w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0)) {
+        comm.angular_velocities[0] = 0;
+        comm.angular_velocities[1] = 0;
+        comm.angular_velocities[2] = 0;
+        comm.angular_velocities[3] = 0;
+        _cmd_vel_pub.publish (comm);
+      }
+      assert (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0);
+      _cmd_vel_pub.publish (comm);
+      //_odomOk = false;
+      r.sleep();
+
+
   }
 
 }
-
 
 void QUAD_CTRL::run() {
     boost::thread ctrl_loop_t ( &QUAD_CTRL::ctrl_loop, this);
 }
-
-
-//----------- PLANNER ----------
-
-
-struct Node {
-  std::vector<Node*> children;
-  Node* parent;
-
-  Vector3d p;
-  double yaw;
-};
-
-double nDist (const Node* n1, const Node* n2) {
-  Vector3d dist = n2->p - n1->p;
-  return dist.norm();
-  //return sqrt( pow(n1->p[0] - n2->p[0] , 2) + pow(n1->p[1] - n2->p[1] , 2) + pow(n1->p[2] - n2->p[2] , 2)  );
-}
-
-Node* searchTree(Node* root, Node* newPose) {
-  Node * nearest = root;
-  double bestDist = nDist(root, newPose);
-
-  std::vector<Node*> open;
-  open.push_back(root);
-
-  while ( !(open.empty()) ) {
-    Node * n = open.front();
-    open.erase(open.begin());
-
-    double dist = nDist(n, newPose);
-    if (dist<bestDist) {
-      bestDist = dist;
-      nearest = n;
-    }
-
-    size_t size = n->children.size();
-
-    for (int i=0; i<size; i++) {
-      open.push_back( n->children[i] );
-    }
-  }
-
-  return nearest;
-}
-
-nav_msgs::Path generated_path;
-
-bool AstarSearchTree(Node* root, Node* goal, bool rootTree) {
-  geometry_msgs::PoseStamped p;
-  p.header.frame_id = "map";
-
-  std::vector<Node*> open;
-  open.push_back(root);
-  root->parent = root;
-  double bestDist = nDist(root, goal)+100;
-  Node * bestNode = root;
-  bool found = false;
-
-  while ( !(open.empty()) && !found) {
-    size_t i=0;
-    size_t bestPos = 0;
-    for (i=0; i<open.size(); i++) {
-      if ( (nDist(open[i], root) + nDist(open[i], goal)) < bestDist ) {
-        bestNode = open[i]; //Trovo il migliore
-        //ROS_INFO("Migliore trovato");
-        bestPos=i;
-      }
-    }
-    //ROS_INFO("Cancello nodo");
-    open.erase(open.begin()+bestPos); //Lo elimino dai nodi da controllare
-    //ROS_INFO("Nodo cancellato");
-    if (bestNode==goal)
-      found = true;
-    else {
-      size_t size = bestNode->children.size();
-
-      for (int i=0; i<size; i++) {
-        open.push_back( bestNode->children[i] );
-        bestNode->children[i]->parent = bestNode;
-      }
-    }
-
-  }
-
-  if (found) {
-    ROS_INFO("Astar trovato");
-    Node * start = goal;
-    while (start != root) {
-      p.pose.position.x = start->p[0];
-      p.pose.position.y = start->p[1];
-      p.pose.position.z = start->p[2];
-
-      p.pose.orientation.x = 0;
-      p.pose.orientation.y = 0;
-      p.pose.orientation.z = 0;
-      p.pose.orientation.w = 1;
-
-      if (rootTree)
-        generated_path.poses.insert(generated_path.poses.begin(), p);
-      else
-        generated_path.poses.insert(generated_path.poses.end(), p);
-
-      start = start->parent;
-    }
-
-    p.pose.position.x = root->p[0];
-    p.pose.position.y = root->p[1];
-    p.pose.position.z = root->p[2];
-    if (rootTree)
-      generated_path.poses.insert(generated_path.poses.begin(), p);
-    else
-      generated_path.poses.insert(generated_path.poses.end(), p);
-
-  }
-
-  return found;
-}
-
-class QUAD_PLAN {
-    public:
-        QUAD_PLAN(const double * boundaries);
-        void run();
-        void plan();
-        bool isStateValid(const Node*, const Node*);
-        void setGoal(const double* init, const double * goal);
-    private:
-        ros::NodeHandle _nh;
-
-        ros::Publisher _path_pub;
-        std::shared_ptr<fcl::CollisionGeometry> _Robot;
-        std::shared_ptr<fcl::CollisionGeometry> _tree_obj;
-    		ros::Subscriber _octree_sub;
-        double _init_pose[4];
-        double _goal_pose[4];
-        double _boundaries[6];
-        bool _new_goal;
-        double _tresh;
-};
-
-void QUAD_PLAN::setGoal(const double* init, const double * goal) {
-  for (int i=0; i<4; i++) {
-    _init_pose[i] = init[i];
-    _goal_pose[i] = goal[i];
-  }
-
-  _new_goal = true;
-}
-
-QUAD_PLAN::QUAD_PLAN(const double * boundaries) {
-
-	_path_pub = _nh.advertise<nav_msgs::Path>("path", 0);
-
-	_Robot = std::shared_ptr<fcl::CollisionGeometry>(new fcl::Box(0.5, 0.5, 0.3));
-	//fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree(0.05)));
-  fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree("/home/eugenio/arena.binvox.bt")));
-	_tree_obj = std::shared_ptr<fcl::CollisionGeometry>(tree);
-	//_octree_sub = _nh.subscribe<octomap_msgs::Octomap>("/octomap_binary", 1, &QUAD_PLAN::octomapCallback, this);
-
-  for (int i=0; i<6; i++)
-    _boundaries[i] = boundaries[i];
-
-  _new_goal = false;
-  _tresh = 0.05;
-}
-
-bool QUAD_PLAN::isStateValid(const Node* q1, const Node* q2)
-{
-	fcl::CollisionObject treeObj((_tree_obj));
-	fcl::CollisionObject robotObject(_Robot);
-
-  Vector3d direction = q2->p - q1->p;
-  double norma = direction.norm();
-  direction = direction / direction.norm();
-  bool collision = false;
-
-  for (double i=0; i<=norma; i+=(norma/5) ) {
-    ROS_INFO("Test Collisione %f",i);
-  	// check validity of state defined by pos & rot
-  	fcl::Vec3f translation(q1->p[0] + i*direction[0],q1->p[1] + i*direction[1], q1->p[2] + i*direction[2]);
-  	fcl::Quaternion3f rotation(0, 0, 0, 1);
-    //fcl::Quaternion3f rotation(rot->w, rot->x, rot->y, rot->z);
-  	robotObject.setTransform(rotation, translation);
-  	fcl::CollisionRequest requestType(1,false,1,false);
-  	fcl::CollisionResult collisionResult;
-  	fcl::collide(&robotObject, &treeObj, requestType, collisionResult);
-    if (!collision)
-      collision = collisionResult.isCollision();
-  }
-
-	return(!collision);
-
-}
-
-void QUAD_PLAN::run() {
-	boost::thread plan_t( &QUAD_PLAN::plan, this );
-}
-
-void QUAD_PLAN::plan() {
-  ROS_INFO("Planner attivo");
-
-  bool found = false;
-  bool rootFound = false;
-  bool goalFound = false;
-  int tries = 0;
-
-  ros::Rate r(10);
-
-  while (!_new_goal) usleep(1);
-
-  Node* goal = new Node;
-  goal->p[0] = _goal_pose[0];
-  goal->p[1] = _goal_pose[1];
-  goal->p[2] = _goal_pose[2];
-  goal->yaw = _goal_pose[3];
-
-  Node* root = new Node;
-  root->p[0] = _init_pose[0];
-  root->p[1] = _init_pose[1];
-  root->p[2] = _init_pose[2];
-  root->yaw = _init_pose[3];
-
-  generated_path.header.frame_id = "map";
-
-
-  double mindistGoal = 1000;
-
-  std::default_random_engine re;
-  re.seed(std::random_device{}());
-  std::uniform_int_distribution<int> pickGoal(0, 100);
-
-  Node * q_rand_goal;
-  Node * q_rand;
-  Node* q_near;
-
-  bool faseUnione = false;
-
-  while(!found && tries<1500) {
-    bool validState=false;
-    double dist=0;
-    tries++;
-    ROS_INFO("Tries: %d - %d",tries,pickGoal(re));
-    if (tries>1000) faseUnione=true;
-    //Generate InitialPos tree
-    q_rand = new Node;
-
-    do{
-      if (pickGoal(re)>=80)
-        q_rand->p = goal->p;
-      else {
-        for (int i=0; i<3; i++) {
-          std::uniform_int_distribution<int> uni(1000*_boundaries[2*i], 1000*_boundaries[2*i+1]);
-          q_rand->p[i] = (double)(uni(re))/1000.0;
-        }
-      }
-      q_near = searchTree(root, q_rand);
-      dist = nDist(q_near, q_rand);
-
-      if (dist>_tresh) {
-        Vector3d direction = q_rand->p - q_near->p;
-        direction = direction / direction.norm();
-        q_rand->p = q_near->p + _tresh*direction;
-      }
-
-      if (isStateValid(q_near,q_rand)) {
-        q_near->children.push_back(q_rand);
-        if (q_rand->p == goal->p)
-          rootFound = true;
-        validState = true;
-      }
-      else
-        ROS_INFO("Non valido");
-
-    } while (!validState);
-
-    if(rootFound) break;
-
-    //Generate Goal Tree
-    q_rand_goal = new Node;
-    validState = false;
-
-    do {
-      ROS_INFO("goalTree");
-      if (pickGoal(re)>=80)
-        q_rand_goal->p = root->p;
-      else {
-        for (int i=0; i<3; i++) {
-          std::uniform_int_distribution<int> uni(1000*_boundaries[2*i], 1000*_boundaries[2*i+1]);
-          q_rand_goal->p[i] = (double)(uni(re))/1000.0;
-        }
-      }
-
-      //ROS_INFO("Cercando");
-      q_near = searchTree(goal, q_rand_goal);
-      //ROS_INFO("trovato");
-      dist = nDist(q_near, q_rand_goal);
-      if (dist>_tresh) {
-        Vector3d direction = q_rand_goal->p - q_near->p;
-        direction = direction / direction.norm();
-        q_rand_goal->p = q_near->p + _tresh*direction;
-      }
-
-      if (isStateValid(q_near,q_rand_goal)) {
-        q_near->children.push_back(q_rand_goal);
-        if (q_rand_goal->p == goal->p)
-          goalFound = true;
-        validState=true;
-      }
-      else
-        ROS_INFO("Non valido");
-      } while(!validState);
-
-    if(goalFound) break;
-
-
-    //Connect trees
-    if (faseUnione) {
-      if (tries==1001) ROS_INFO("Fase unione");
-
-      //Connect q_rand_goal to Initial tree
-
-        q_near = searchTree(root, q_rand_goal);
-
-        dist = nDist(q_near, q_rand_goal);
-        if (dist>_tresh) {
-          Vector3d direction = q_rand_goal->p - q_near->p;
-          direction = direction / direction.norm();
-          q_rand_goal->p = q_rand_goal->p + _tresh*direction;
-          if (isStateValid(q_near,q_rand_goal)) {
-            q_near->children.push_back(q_rand_goal);
-            validState = true;
-          }
-          else
-            ROS_INFO("Non valido");
-        }
-        else  found = true;
-
-      //Connect q_rand to Goal tree
-
-      if (!found) {
-
-          q_near = searchTree(goal, q_rand);
-          dist = nDist(q_near, q_rand);
-          if (dist>_tresh) {
-            Vector3d direction = q_rand->p - q_near->p;
-            direction = direction / direction.norm();
-            q_rand->p = q_near->p + _tresh*direction;
-            if (isStateValid(q_near,q_rand_goal)) {
-              q_near->children.push_back(q_rand);
-              validState = true;
-            }
-            else
-              ROS_INFO("Non valido");
-          }
-          else  found = true;
-
-      }
-
-
-    }
-
-  }
-
-  if (rootFound) {
-    if ( AstarSearchTree(root, q_near, true) ) ROS_INFO("Path trovato");
-    else ROS_INFO("Path non trovato");
-  }
-  else if (goalFound) {
-    if ( AstarSearchTree(goal, q_rand_goal, false) ) ROS_INFO("Path trovato");
-    else ROS_INFO("Path non trovato");
-  }
-  else if(found) {
-    ROS_INFO("Connessione trovata");
-    if ( AstarSearchTree(root, q_near, true) && AstarSearchTree(goal, q_rand_goal, false) ) ROS_INFO("Path trovato");
-    else ROS_INFO("Path non trovato");
-  }
-  else ROS_INFO("Connessione non trovata");
-
-  while( ros::ok() ) {
-    _path_pub.publish( generated_path );
-    r.sleep();
-  }
-}
-
 
 int main( int argc, char** argv) {
 
@@ -481,9 +374,12 @@ int main( int argc, char** argv) {
     p.run();
     c.run();
 
-    double init[] = {0,0,0,0};
-    double goal[] = {3,3,3,0};
+    double init[] = {0,0,0.06,0};
+    double goal[] = {0,0.5,0.5,0};
     p.setGoal(init, goal);
+    while(!p.isPlanned()) ros::spinOnce();
+
+    c.setTraj(p.poses, p.velocities, p.accelerations);
 
     ros::spin();
 
