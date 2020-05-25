@@ -33,7 +33,7 @@ struct Node {
 class QUAD_PLAN {
     public:
         QUAD_PLAN(const double * boundaries);
-        ~QUAD_PLAN() {_shutdown = true; sleep(0.2);};
+        ~QUAD_PLAN() {_shutdown = true; };
         void run();
         void plan();
         void setGoal(const double* init, const double * goal);

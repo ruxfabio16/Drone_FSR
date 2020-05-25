@@ -33,6 +33,7 @@ Vector3d Vee(Matrix3d S) {
 class QUAD_CTRL {
     public:
         QUAD_CTRL();
+        ~QUAD_CTRL() {_shutdown=true; ROS_INFO("Shutting down...");};
         void odom_cb( nav_msgs::OdometryConstPtr );
         void run();
         void ctrl_loop();
@@ -83,6 +84,7 @@ class QUAD_CTRL {
         bool _isSettingTraj;
         tf::Quaternion _q_des;
         mav_msgs::Actuators _comm;
+        bool _shutdown;
 };
 
 void QUAD_CTRL::getPose(double * Pose) {
@@ -231,6 +233,7 @@ QUAD_CTRL::QUAD_CTRL() {
     _landed = false;
     _odomOk = false;
     _iter = 0;
+    _shutdown = false;
 
     _P.resize(3);
     _Eta.resize(3);
@@ -341,7 +344,7 @@ void QUAD_CTRL::ctrl_loop() {
     usleep(1000);
   }
 
-  while( ros::ok() ) {
+  while( ros::ok() && !_shutdown ) {
 
     if (!_isLanding) {
       updateError();
@@ -374,7 +377,7 @@ void QUAD_CTRL::ctrl_loop() {
     else {
       _comm.header.stamp = ros::Time::now();
       bool landed = true;
-      
+
       for (int i=0; i<4; i++) {
         _comm.angular_velocities[i] = _comm.angular_velocities[i]-1;
         if (_comm.angular_velocities[i]<0) {
@@ -396,8 +399,10 @@ void QUAD_CTRL::run() {
     boost::thread ctrl_loop_t ( &QUAD_CTRL::ctrl_loop, this);
 }
 
+bool shut=false;
 void cb_server() {
-  ros::spin();
+  while (!shut)
+    ros::spinOnce();
 }
 
 int main( int argc, char** argv) {
@@ -407,17 +412,19 @@ int main( int argc, char** argv) {
     double limits[6]={-1,6,-1,6,0,5};
 
     std::vector<std::array<double, 4>> wayPoints;
-    std::array<double, 4> point0 = {1,0,1,0};
-    std::array<double, 4> point1 = {2,0,1,0};
+    std::array<double, 4> point0 = {1,0,0.08,0};
+    std::array<double, 4> point1 = {3,3,3,0};
     std::array<double, 4> point2 = {5.4,1.4,0.06,0};
-    wayPoints.push_back(point2);
+    //wayPoints.push_back(point2);
     //wayPoints.push_back(point1);
-    //wayPoints.push_back(point0);
+    wayPoints.push_back(point0);
 
     QUAD_CTRL c;
+    QUAD_PLAN p(limits);
 
     ROS_INFO("Programma attivo");
     c.run();
+    p.run();
     boost::thread cb_server_t ( &cb_server );
 
     while (wayPoints.size()>0) {
@@ -425,9 +432,6 @@ int main( int argc, char** argv) {
       wayPoints.pop_back();
       double init[4];
       double goal[] = {point[0],point[1],point[2],point[3]};
-
-      QUAD_PLAN p(limits);
-      p.run();
 
       c.getPose(init);
       //cout<<endl<<init[0]<<" "<<init[1]<<" "<<init[2]<<" "<<init[3]<<endl;
@@ -444,8 +448,10 @@ int main( int argc, char** argv) {
 
     c.land();
     while (!c.isLanded()) usleep(1000);
-
+    shut = true;
     ROS_INFO("PATH COMPLETED!");
+
+    sleep(1);
 
     return 0;
 
