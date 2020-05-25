@@ -1,7 +1,7 @@
 Quadcopter controller
 ===============
 
-The developed controller is inside the "quad_controller" folder. All the other folders are from the [RotorS MAV simulator](https://github.com/ethz-asl/rotors_simulator) and provide the dynamic Gazebo model of the [AscTec Hummingbird](http://www.asctec.de/en/uav-uas-drone-products/asctec-hummingbird/) quadcopter.
+The developed controller is inside the "quad_control" folder. All the other folders are from the [RotorS MAV simulator](https://github.com/ethz-asl/rotors_simulator) and provide the dynamic Gazebo model of the [AscTec Hummingbird](http://www.asctec.de/en/uav-uas-drone-products/asctec-hummingbird/) quadcopter.
 
 Installation Instructions - Ubuntu 18.04 with ROS Melodic
 ---------------------------------------------------------
