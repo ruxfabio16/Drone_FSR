@@ -254,9 +254,9 @@ QUAD_CTRL::QUAD_CTRL() {
     _G(2,0) = -_l*_c_T; _G(2,1) = 0;       _G(2,2) = _l*_c_T; _G(2,3) = 0;
     _G(3,0) = -_c_a;    _G(3,1) = _c_a;    _G(3,2) = -_c_a; _G(3,3) = _c_a;
 
-    _Kp = 3;
-    _Kv = _Kp/5;
-    _Kr = 0.5;
+    _Kp = 5;
+    _Kv = _Kp/2;
+    _Kr = 0.4;
     _Kw = _Kr/5;
 
 }
@@ -370,7 +370,7 @@ void QUAD_CTRL::ctrl_loop() {
       else {
         ROS_WARN("w problem");
         //cout<<controlInput<<endl;
-        cout<<_Ep<<endl;
+        //cout<<_Ep<<endl;
       }
       //assert (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0);
     }
@@ -412,12 +412,12 @@ int main( int argc, char** argv) {
     double limits[6]={-1,6,-1,6,0,5};
 
     std::vector<std::array<double, 4>> wayPoints;
-    std::array<double, 4> point0 = {1,0,0.08,0};
+    std::array<double, 4> point0 = {1,0,0.06,0};
     std::array<double, 4> point1 = {3,3,3,0};
-    std::array<double, 4> point2 = {5.4,1.4,0.06,0};
-    //wayPoints.push_back(point2);
-    //wayPoints.push_back(point1);
-    wayPoints.push_back(point0);
+    std::array<double, 4> point2 = {5.4,1.4,0.07,0};
+    wayPoints.push_back(point2);
+    wayPoints.push_back(point1);
+    //wayPoints.push_back(point0);
 
     QUAD_CTRL c;
     QUAD_PLAN p(limits);

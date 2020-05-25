@@ -173,7 +173,9 @@ QUAD_PLAN::QUAD_PLAN(const double * boundaries) {
 
 	_Robot = std::shared_ptr<fcl::CollisionGeometry>(new fcl::Cylinder(0.3, 0.3));
 	//fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree(0.05)));
-  fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree("/home/eugenio/arena.binvox.bt")));
+  std::string arena_path;
+  _nh.getParam("arena_path", arena_path);
+  fcl::OcTree* tree = new fcl::OcTree(std::shared_ptr<const octomap::OcTree>(new octomap::OcTree(arena_path)));
 	_tree_obj = std::shared_ptr<fcl::CollisionGeometry>(tree);
 	//_octree_sub = _nh.subscribe<octomap_msgs::Octomap>("/octomap_binary", 1, &QUAD_PLAN::octomapCallback, this);
 
@@ -198,8 +200,8 @@ bool QUAD_PLAN::isStateValid(const Node* q1, const Node* q2)
   bool collision = false;
 
   if (norma<=0) {
-    ROS_INFO("Norma");
-    return true;
+    //ROS_INFO("Norma");
+    return false;
   }
 
   for (double i=0; i<=norma; i+=(norma/5) ) {
@@ -270,7 +272,7 @@ void QUAD_PLAN::plan() {
       bool validState=false;
       double dist=0;
       tries++;
-      ROS_INFO("Tries: %d",tries);
+      //ROS_INFO("Tries: %d",tries);
       if (tries>1000) faseUnione=true;
       //Generate InitialPos tree
       q_rand = new Node;
@@ -342,7 +344,7 @@ void QUAD_PLAN::plan() {
         } while(!validState);
 
       if(goalFound) {
-        ROS_INFO("Trovato goal: break");
+        //ROS_INFO("Trovato goal: break");
         break;
       }
 
@@ -370,8 +372,8 @@ void QUAD_PLAN::plan() {
               q_near->children.push_back(q_rand_goal);
               validState = true;
             }
-            else
-              ROS_INFO("Non valido");
+            //else
+              //ROS_INFO("Non valido");
           }
           else  found = true;
 
@@ -396,8 +398,8 @@ void QUAD_PLAN::plan() {
                 q_near->children.push_back(q_rand);
                 validState = true;
               }
-              else
-                ROS_INFO("Non valido");
+              //else
+                //ROS_INFO("Non valido");
             }
             else  found = true;
 
@@ -408,7 +410,7 @@ void QUAD_PLAN::plan() {
 
     }
 
-    ROS_INFO("Cerco un path");
+    ROS_INFO("Cerco un path...");
 
     if (rootFound) {
       if ( AstarSearchTree(root, q_near, true) ) ROS_INFO("Path trovato");
@@ -425,6 +427,8 @@ void QUAD_PLAN::plan() {
     }
     else ROS_INFO("Connessione non trovata");
 
+    ROS_INFO("Iterazioni: %d",tries);
+
     size_t nPoses = generated_path.poses.size();
     double yawInc = (goal->yaw - root->yaw)/nPoses;
     for (int i=0; i<nPoses; i++) {
@@ -438,7 +442,7 @@ void QUAD_PLAN::plan() {
       filtered_path.poses.push_back(generated_path.poses[i]);
     }
 
-    for (int i=0; i<50; i++)
+    for (int i=0; i<100; i++)
       filterPath();
 
     generateTraj();
@@ -641,7 +645,6 @@ void QUAD_PLAN::generateTraj() {
 
     t+=stepTime;
   }
-
 
   geometry_msgs::PoseStamped pos;
   geometry_msgs::TwistStamped vel;
