@@ -138,11 +138,12 @@ bool QUAD_PLAN::AstarSearchTree(Node* root, Node* goal, bool rootTree) {
 }
 
 
-void QUAD_PLAN::setGoal(const double* init, const double * goal) {
+void QUAD_PLAN::setGoal(const double* init, const double * goal, const bool flip) {
   for (int i=0; i<4; i++) {
     _init_pose[i] = init[i];
     _goal_pose[i] = goal[i];
   }
+  _flip = flip;
 
   _planned = false;
 
@@ -189,8 +190,7 @@ QUAD_PLAN::QUAD_PLAN(const double * boundaries) {
   _shutdown = false;
 }
 
-bool QUAD_PLAN::isStateValid(const Node* q1, const Node* q2)
-{
+bool QUAD_PLAN::isStateValid(const Node* q1, const Node* q2) {
 	fcl::CollisionObject treeObj((_tree_obj));
 	fcl::CollisionObject robotObject(_Robot);
 
@@ -233,169 +233,145 @@ void QUAD_PLAN::plan() {
 
     while (!_new_goal) usleep(1000);
 
-    bool found = false;
-    bool rootFound = false;
-    bool goalFound = false;
-    int tries = 0;
+    if(!_flip) {
 
-    Node* goal = new Node;
-    goal->p[0] = _goal_pose[0];
-    goal->p[1] = _goal_pose[1];
-    goal->p[2] = _goal_pose[2];
-    goal->yaw = _goal_pose[3];
+      bool found = false;
+      bool rootFound = false;
+      bool goalFound = false;
+      int tries = 0;
 
-    Node* root = new Node;
-    root->p[0] = _init_pose[0];
-    root->p[1] = _init_pose[1];
-    root->p[2] = _init_pose[2];
-    root->yaw = _init_pose[3];
+      Node* goal = new Node;
+      goal->p[0] = _goal_pose[0];
+      goal->p[1] = _goal_pose[1];
+      goal->p[2] = _goal_pose[2];
+      goal->yaw = _goal_pose[3];
 
-    generated_path.header.frame_id = "map";
-    filtered_path.header.frame_id = "map";
-    cubic_path.header.frame_id = "map";
+      Node* root = new Node;
+      root->p[0] = _init_pose[0];
+      root->p[1] = _init_pose[1];
+      root->p[2] = _init_pose[2];
+      root->yaw = _init_pose[3];
+
+      generated_path.header.frame_id = "map";
+      filtered_path.header.frame_id = "map";
+      cubic_path.header.frame_id = "map";
 
 
-    double mindistGoal = 1000;
+      double mindistGoal = 1000;
 
-    std::default_random_engine re;
-    re.seed(std::random_device{}());
-    std::uniform_int_distribution<int> pickGoal(0, 100);
+      std::default_random_engine re;
+      re.seed(std::random_device{}());
+      std::uniform_int_distribution<int> pickGoal(0, 100);
 
-    Node * q_rand_goal;
-    Node * q_rand;
-    Node* q_near;
+      Node * q_rand_goal;
+      Node * q_rand;
+      Node* q_near;
 
-    bool faseUnione = false;
+      bool faseUnione = false;
 
-    while(!found && tries<1500) {
-      usleep(1000);
-      bool validState=false;
-      double dist=0;
-      tries++;
-      //ROS_INFO("Tries: %d",tries);
-      if (tries>1000) faseUnione=true;
-      //Generate InitialPos tree
-      q_rand = new Node;
+      while(!found && tries<1500) {
+        usleep(1000);
+        bool validState=false;
+        double dist=0;
+        tries++;
+        //ROS_INFO("Tries: %d",tries);
+        if (tries>1000) faseUnione=true;
+        //Generate InitialPos tree
+        q_rand = new Node;
 
-      do{
-        if (pickGoal(re)>=80)
-          q_rand->p = goal->p;
-        else {
-          for (int i=0; i<3; i++) {
-            std::uniform_int_distribution<int> uni(1000*_boundaries[2*i], 1000*_boundaries[2*i+1]);
-            q_rand->p[i] = (double)(uni(re))/1000.0;
+        do{
+          if (pickGoal(re)>=80)
+            q_rand->p = goal->p;
+          else {
+            for (int i=0; i<3; i++) {
+              std::uniform_int_distribution<int> uni(1000*_boundaries[2*i], 1000*_boundaries[2*i+1]);
+              q_rand->p[i] = (double)(uni(re))/1000.0;
+            }
           }
-        }
-        q_near = searchTree(root, q_rand);
-        dist = nDist(q_near, q_rand);
+          q_near = searchTree(root, q_rand);
+          dist = nDist(q_near, q_rand);
 
-        if (dist>_tresh) {
-          Vector3d direction = q_rand->p - q_near->p;
-          direction = direction / direction.norm();
-          q_rand->p = q_near->p + _tresh*direction;
-        }
-
-        if (isStateValid(q_near,q_rand)) {
-          q_near->children.push_back(q_rand);
-          if (q_rand->p == goal->p)
-            rootFound = true;
-          validState = true;
-        }
-        //else
-        //  ROS_INFO("Non valido");
-
-      } while (!validState);
-
-      if(rootFound) break;
-
-      //Generate Goal Tree
-      q_rand_goal = new Node;
-      validState = false;
-
-      do {
-        //ROS_INFO("goalTree");
-        if (pickGoal(re)>=80)
-          q_rand_goal->p = root->p;
-        else {
-          for (int i=0; i<3; i++) {
-            std::uniform_int_distribution<int> uni(1000*_boundaries[2*i], 1000*_boundaries[2*i+1]);
-            q_rand_goal->p[i] = (double)(uni(re))/1000.0;
+          if (dist>_tresh) {
+            Vector3d direction = q_rand->p - q_near->p;
+            direction = direction / direction.norm();
+            q_rand->p = q_near->p + _tresh*direction;
           }
-        }
 
-        //ROS_INFO("Cercando");
-        q_near = searchTree(goal, q_rand_goal);
-        //ROS_INFO("trovato");
-        dist = nDist(q_near, q_rand_goal);
-        if (dist>_tresh) {
-          Vector3d direction = q_rand_goal->p - q_near->p;
-          direction = direction / direction.norm();
-          q_rand_goal->p = q_near->p + _tresh*direction;
-        }
+          if (isStateValid(q_near,q_rand)) {
+            q_near->children.push_back(q_rand);
+            if (q_rand->p == goal->p)
+              rootFound = true;
+            validState = true;
+          }
+          //else
+          //  ROS_INFO("Non valido");
 
-        if (isStateValid(q_near,q_rand_goal)) {
-          q_near->children.push_back(q_rand_goal);
-          if (q_rand_goal->p == goal->p)
-            goalFound = true;
-          validState=true;
-        }
-        //else
-        //  ROS_INFO("Non valido");
-        } while(!validState);
+        } while (!validState);
 
-      if(goalFound) {
-        //ROS_INFO("Trovato goal: break");
-        break;
-      }
+        if(rootFound) break;
 
-      validState=false;
-      //Connect trees
-      if (faseUnione) {
-        if (tries==1001) ROS_INFO("Fase unione");
+        //Generate Goal Tree
+        q_rand_goal = new Node;
+        validState = false;
 
-        //Connect q_rand_goal to Initial tree
-          double appo[3];
-          for (int i=0; i<3; i++)
-            appo[i] = q_rand_goal->p[i];
-          q_rand_goal = new Node;
-          for (int i=0; i<3; i++)
-            q_rand_goal->p[i] = appo[i];
+        do {
+          //ROS_INFO("goalTree");
+          if (pickGoal(re)>=80)
+            q_rand_goal->p = root->p;
+          else {
+            for (int i=0; i<3; i++) {
+              std::uniform_int_distribution<int> uni(1000*_boundaries[2*i], 1000*_boundaries[2*i+1]);
+              q_rand_goal->p[i] = (double)(uni(re))/1000.0;
+            }
+          }
 
-          q_near = searchTree(root, q_rand_goal);
-
+          //ROS_INFO("Cercando");
+          q_near = searchTree(goal, q_rand_goal);
+          //ROS_INFO("trovato");
           dist = nDist(q_near, q_rand_goal);
           if (dist>_tresh) {
             Vector3d direction = q_rand_goal->p - q_near->p;
             direction = direction / direction.norm();
-            q_rand_goal->p = q_rand_goal->p + _tresh*direction;
-            if (isStateValid(q_near,q_rand_goal)) {
-              q_near->children.push_back(q_rand_goal);
-              validState = true;
-            }
-            //else
-              //ROS_INFO("Non valido");
+            q_rand_goal->p = q_near->p + _tresh*direction;
           }
-          else  found = true;
 
-          validState=false;
-        //Connect q_rand to Goal tree
+          if (isStateValid(q_near,q_rand_goal)) {
+            q_near->children.push_back(q_rand_goal);
+            if (q_rand_goal->p == goal->p)
+              goalFound = true;
+            validState=true;
+          }
+          //else
+          //  ROS_INFO("Non valido");
+          } while(!validState);
 
-        if (!found && validState) {
+        if(goalFound) {
+          //ROS_INFO("Trovato goal: break");
+          break;
+        }
 
+        validState=false;
+        //Connect trees
+        if (faseUnione) {
+          if (tries==1001) ROS_INFO("Fase unione");
+
+          //Connect q_rand_goal to Initial tree
+            double appo[3];
             for (int i=0; i<3; i++)
-              appo[i] = q_rand->p[i];
-            q_rand = new Node;
+              appo[i] = q_rand_goal->p[i];
+            q_rand_goal = new Node;
             for (int i=0; i<3; i++)
-              q_rand->p[i] = appo[i];
+              q_rand_goal->p[i] = appo[i];
 
-            q_near = searchTree(goal, q_rand);
-            dist = nDist(q_near, q_rand);
+            q_near = searchTree(root, q_rand_goal);
+
+            dist = nDist(q_near, q_rand_goal);
             if (dist>_tresh) {
-              Vector3d direction = q_rand->p - q_near->p;
+              Vector3d direction = q_rand_goal->p - q_near->p;
               direction = direction / direction.norm();
-              q_rand->p = q_near->p + _tresh*direction;
+              q_rand_goal->p = q_rand_goal->p + _tresh*direction;
               if (isStateValid(q_near,q_rand_goal)) {
-                q_near->children.push_back(q_rand);
+                q_near->children.push_back(q_rand_goal);
                 validState = true;
               }
               //else
@@ -403,62 +379,86 @@ void QUAD_PLAN::plan() {
             }
             else  found = true;
 
-        }
+            validState=false;
+          //Connect q_rand to Goal tree
 
+          if (!found && validState) {
+
+              for (int i=0; i<3; i++)
+                appo[i] = q_rand->p[i];
+              q_rand = new Node;
+              for (int i=0; i<3; i++)
+                q_rand->p[i] = appo[i];
+
+              q_near = searchTree(goal, q_rand);
+              dist = nDist(q_near, q_rand);
+              if (dist>_tresh) {
+                Vector3d direction = q_rand->p - q_near->p;
+                direction = direction / direction.norm();
+                q_rand->p = q_near->p + _tresh*direction;
+                if (isStateValid(q_near,q_rand_goal)) {
+                  q_near->children.push_back(q_rand);
+                  validState = true;
+                }
+                //else
+                  //ROS_INFO("Non valido");
+              }
+              else  found = true;
+
+          }
+
+
+        }
 
       }
 
+      ROS_INFO("Cerco un path...");
+
+      if (rootFound) {
+        if ( AstarSearchTree(root, q_near, true) ) ROS_INFO("Path trovato");
+        else ROS_INFO("Path non trovato");
+      }
+      else if (goalFound) {
+        if ( AstarSearchTree(goal, q_rand_goal, false) ) ROS_INFO("Path trovato");
+        else ROS_INFO("Path non trovato");
+      }
+      else if(found) {
+        ROS_INFO("Connessione trovata");
+        if ( AstarSearchTree(root, q_near, true) && AstarSearchTree(goal, q_near, false) ) ROS_INFO("Path trovato");
+        else ROS_INFO("Path non trovato");
+      }
+      else ROS_INFO("Connessione non trovata");
+
+      ROS_INFO("Iterazioni: %d",tries);
+
+      size_t nPoses = generated_path.poses.size();
+      for (int i=0; i<nPoses; i++) {
+        filtered_path.poses.push_back(generated_path.poses[i]);
+      }
+
+      for (int i=0; i<100; i++)
+        filterPath();
+
+      generateTraj();
+
+      clearTree(root);
+      if(!found) clearTree(goal);
+
+      _new_goal = false;
+      _planned = true;
+      while( !_shutdown && !_new_goal ) {
+        _path_pub.publish( generated_path );
+        _filtered_path_pub.publish( filtered_path );
+        _cubic_path_pub.publish( cubic_path );
+        r.sleep();
+      }
+
     }
-
-    ROS_INFO("Cerco un path...");
-
-    if (rootFound) {
-      if ( AstarSearchTree(root, q_near, true) ) ROS_INFO("Path trovato");
-      else ROS_INFO("Path non trovato");
+    else {
+      planFlip();
+      _new_goal = false;
+      _planned = true;
     }
-    else if (goalFound) {
-      if ( AstarSearchTree(goal, q_rand_goal, false) ) ROS_INFO("Path trovato");
-      else ROS_INFO("Path non trovato");
-    }
-    else if(found) {
-      ROS_INFO("Connessione trovata");
-      if ( AstarSearchTree(root, q_near, true) && AstarSearchTree(goal, q_near, false) ) ROS_INFO("Path trovato");
-      else ROS_INFO("Path non trovato");
-    }
-    else ROS_INFO("Connessione non trovata");
-
-    ROS_INFO("Iterazioni: %d",tries);
-
-    size_t nPoses = generated_path.poses.size();
-    double yawInc = (goal->yaw - root->yaw)/nPoses;
-    for (int i=0; i<nPoses; i++) {
-      tf::Quaternion quat;
-      quat.setRPY(0,0,root->yaw + yawInc*i);
-      generated_path.poses[i].pose.orientation.x = quat[0];
-      generated_path.poses[i].pose.orientation.y = quat[1];
-      generated_path.poses[i].pose.orientation.z = quat[2];
-      generated_path.poses[i].pose.orientation.w = quat[3];
-
-      filtered_path.poses.push_back(generated_path.poses[i]);
-    }
-
-    for (int i=0; i<100; i++)
-      filterPath();
-
-    generateTraj();
-
-    clearTree(root);
-    if(!found) clearTree(goal);
-
-    _new_goal = false;
-    _planned = true;
-    while( !_shutdown && !_new_goal ) {
-      _path_pub.publish( generated_path );
-      _filtered_path_pub.publish( filtered_path );
-      _cubic_path_pub.publish( cubic_path );
-      r.sleep();
-    }
-
 
   }
 }
@@ -613,6 +613,31 @@ void QUAD_PLAN::generateTraj() {
   double xip = 0;
   double xfp = 0;
 
+  tf::Matrix3x3 Ri_tf, Rf_tf;
+  Matrix3d Ri,Rf;
+  Ri_tf.setRPY(0,0,xi);
+  Rf_tf.setRPY(0,0,xf);
+  tf::matrixTFToEigen(Ri_tf,Ri);
+  tf::matrixTFToEigen(Rf_tf,Rf);
+
+  Matrix3d Rif = Ri.transpose()*Rf;
+
+  xi = 0;
+  xf = acos( 0.5*(Rif(0,0)+Rif(1,1)+Rif(2,2)-1) );
+  Vector3d ri;
+  if (xf!=0 && xf!=M_PI) {
+    ri << Rif(2,1)-Rif(1,2) , Rif(0,2)-Rif(2,0) , Rif(1,0)-Rif(0,1) ;
+    ri = ri/(2*sin(xf));
+  }
+  else if (xf == 0) ri << 0,0,0;
+  else if (xf == M_PI) {
+    ri << Rif(0,0)+1 , Rif(1,1)+1 , Rif(2,2)+1 ;
+    ri = ri/2;
+    ri(0) = sqrt(ri(0));
+    ri(1) = sqrt(ri(1));
+    ri(2) = sqrt(ri(2));
+  }
+
   Vector4d a(0,0,0,0);
   Vector2d a23;
   Vector2d b;
@@ -629,22 +654,45 @@ void QUAD_PLAN::generateTraj() {
   a(2) = a23(1);
   a(3) = a23(0);
 
+  double theta, thetad, thetadd;
+  Vector3d wi, wid;
+
   for (int i=0; i<nPoses; i++) {
 
-    double yaw = a(3)*t*t*t + a(2)*t*t + a(1)*t + a(0);
+    theta = a(3)*t*t*t + a(2)*t*t + a(1)*t + a(0) ;
+    thetad = 3*a(3)*t*t + 2*a(2)*t + a(1) ;
+    thetadd = 6*a(3)*t + 2*a(2) ;
+
+    Matrix3d R_i;
+    R_axisAngle(theta,ri, R_i);
+    //cout<<R_i.determinant()<<endl;
+    wi = thetad*ri;
+    wid = thetadd*ri;
+
+    Matrix3d Rb_des = Ri*R_i;
+    Vector3d wbb_des = Rb_des.transpose()*Ri*wi;
+    Vector3d wbbd_des = Rb_des.transpose()*Ri*wid;
+    tf::Matrix3x3 Rb_des_tf;
+    tf::matrixEigenToTF(Rb_des, Rb_des_tf);
 
     tf::Quaternion quat;
-    quat.setRPY(0,0,yaw);
+    Rb_des_tf.getRotation(quat);
     poses[i].pose.orientation.x = quat[0];
     poses[i].pose.orientation.y = quat[1];
     poses[i].pose.orientation.z = quat[2];
     poses[i].pose.orientation.w = quat[3];
 
-    velocities[i].twist.angular.z = 3*a(3)*t*t + 2*a(2)*t + a(1);
-    accelerations[i].accel.angular.z = 6*a(3)*t + 2*a(2);
+    velocities[i].twist.angular.x = wbb_des(0);
+    velocities[i].twist.angular.y = wbb_des(1);
+    velocities[i].twist.angular.z = wbb_des(2);
+
+    accelerations[i].accel.angular.x = wbbd_des(0);
+    accelerations[i].accel.angular.y = wbbd_des(1);
+    accelerations[i].accel.angular.z = wbbd_des(2);
 
     t+=stepTime;
   }
+
 
   geometry_msgs::PoseStamped pos;
   geometry_msgs::TwistStamped vel;
@@ -657,6 +705,149 @@ void QUAD_PLAN::generateTraj() {
   }
 
   cubic_path.poses = poses;
+
+}
+
+void QUAD_PLAN::planFlip() {
+  double stepTime = 1.0/TimeRate; // 1 ms
+  double tf = 0.3;
+  uint32_t seconds = 0;
+  uint32_t nsec = 0;
+
+  ROS_INFO("Durata traiettoria: %f s",tf);
+
+
+  double xi = 0;
+  double xf = M_PI;
+  double xip = 0;
+  double xfp = 3*M_PI/tf;
+
+  for (int j=0; j<2; j++) {
+
+    if (j>0) {
+      xi = M_PI;
+      xf = 2*M_PI;
+      xip = xfp;
+      xfp = 0;
+    }
+
+    tf::Matrix3x3 Ri_tf, Rf_tf;
+    Matrix3d Ri,Rf;
+    Ri_tf.setRPY(xi,0,_init_pose[3]);
+    Rf_tf.setRPY(xf,0,_init_pose[3]);
+    tf::matrixTFToEigen(Ri_tf,Ri);
+    tf::matrixTFToEigen(Rf_tf,Rf);
+
+    Matrix3d Rif = Ri.transpose()*Rf;
+
+    xi = 0;
+    xf = acos( 0.5*(Rif(0,0)+Rif(1,1)+Rif(2,2)-1) );
+    Vector3d ri;
+    if (xf!=0 && xf!=M_PI) {
+      ri << Rif(2,1)-Rif(1,2) , Rif(0,2)-Rif(2,0) , Rif(1,0)-Rif(0,1) ;
+      ri = ri/(2*sin(xf));
+    }
+    else if (xf == 0) ri << 0,0,0;
+    else if (xf == M_PI) {
+      ri << Rif(0,0)+1 , Rif(1,1)+1 , Rif(2,2)+1 ;
+      ri = ri/2;
+      ri(0) = sqrt(ri(0));
+      ri(1) = sqrt(ri(1));
+      ri(2) = sqrt(ri(2));
+    }
+
+    Vector4d a(0,0,0,0);
+    Vector2d a23;
+    Vector2d b;
+    Matrix2d A;
+    a(0) = xi;
+    a(1) = xip;
+
+    A(0,0) = tf*tf*tf; A(0,1) = tf*tf;
+    A(1,0) = 3*tf*tf;  A(1,1) = 2*tf;
+    b(0) = xf - a(0) - a(1)*tf;
+    b(1) = xfp - a(1);
+
+    a23 = A.inverse() * b;
+    a(2) = a23(1);
+    a(3) = a23(0);
+
+    double theta, thetad, thetadd;
+    Vector3d wi, wid;
+
+    for (double t=0; t<=tf; t+=stepTime) {
+
+      geometry_msgs::PoseStamped pos;
+      geometry_msgs::TwistStamped vel;
+      geometry_msgs::AccelStamped acc;
+
+      ros::Time clock = ros::Time::now();
+
+      pos.header.frame_id="map";
+      vel.header.frame_id="map";
+      acc.header.frame_id="map";
+      pos.header.stamp=clock;
+      vel.header.stamp=clock;
+      acc.header.stamp=clock;
+
+      pos.pose.position.x = _init_pose[0];
+      pos.pose.position.y = _init_pose[1];
+      pos.pose.position.z = _init_pose[2]+1.5;
+
+      theta = a(3)*t*t*t + a(2)*t*t + a(1)*t + a(0) ;
+      thetad = 3*a(3)*t*t + 2*a(2)*t + a(1) ;
+      thetadd = 6*a(3)*t + 2*a(2) ;
+
+      Matrix3d R_i;
+      R_axisAngle(theta,ri, R_i);
+      //cout<<R_i.determinant()<<endl;
+      wi = thetad*ri;
+      wid = thetadd*ri;
+
+      Matrix3d Rb_des = Ri*R_i;
+      Vector3d wbb_des = Rb_des.transpose()*Ri*wi;
+      Vector3d wbbd_des = Rb_des.transpose()*Ri*wid;
+      tf::Matrix3x3 Rb_des_tf;
+      tf::matrixEigenToTF(Rb_des, Rb_des_tf);
+
+      tf::Quaternion quat;
+      Rb_des_tf.getRotation(quat);
+      pos.pose.orientation.x = quat[0];
+      pos.pose.orientation.y = quat[1];
+      pos.pose.orientation.z = quat[2];
+      pos.pose.orientation.w = quat[3];
+
+      vel.twist.angular.x = wbb_des(0);
+      vel.twist.angular.y = wbb_des(1);
+      vel.twist.angular.z = wbb_des(2);
+
+      acc.accel.angular.x = wbbd_des(0);
+      acc.accel.angular.y = wbbd_des(1);
+      acc.accel.angular.z = wbbd_des(2);
+
+      poses.push_back(pos);
+      velocities.push_back(vel);
+      accelerations.push_back(acc);
+
+    }
+  }
+
+
+  geometry_msgs::PoseStamped pos;
+  geometry_msgs::TwistStamped vel;
+  geometry_msgs::AccelStamped acc;
+  pos = poses.back();
+  pos.pose.position.z = _init_pose[2];
+
+  for (int i=0; i<5; i++) {
+    poses.push_back(pos);
+    velocities.push_back(vel);
+    accelerations.push_back(acc);
+  }
+
+  cubic_path.poses = poses;
+  filtered_path.poses = poses;
+  generated_path.poses = poses;
 
 }
 
@@ -676,5 +867,14 @@ void QUAD_PLAN::debug_loop() {
       r.sleep();
     }
   }
+
+}
+
+void QUAD_PLAN::R_axisAngle(double th, Vector3d r, Matrix3d &R){
+  double cc = 1-cos(th);
+
+  R << r(0)*r(0)*cc+cos(th)       , r(0)*r(1)*cc-r(2)*sin(th) , r(0)*r(2)*cc+r(1)*sin(th),
+       r(0)*r(1)*cc+r(2)*sin(th)  , r(1)*r(1)*cc+cos(th)      , r(1)*r(2)*cc-r(0)*sin(th),
+       r(0)*r(2)*cc-r(1)*sin(th)  , r(1)*r(2)*cc+r(0)*sin(th) , r(2)*r(2)*cc+cos(th);
 
 }

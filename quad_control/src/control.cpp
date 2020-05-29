@@ -43,8 +43,10 @@ class QUAD_CTRL {
         bool isLanded() {return _landed;};
         void land() {_isLanding=true;};
         void getPose(double * Pose);
+        bool _flipping;
     private:
         void updateError();
+        void correctW(Vector4d & w);
         ros::NodeHandle _nh;
         ros::Subscriber _odom_sub;
         ros::Publisher _cmd_vel_pub;
@@ -87,13 +89,52 @@ class QUAD_CTRL {
         bool _shutdown;
 };
 
+void QUAD_CTRL::correctW(Vector4d & w2) {
+  if(w2(0)<0 && w2(2)<0) {
+    w2(0)=0;
+    w2(2)=0;
+  } else {
+    if (w2(0) < 0) {
+      w2(2) += w2(0);
+      w2(0) = 0;
+    }
+    if (w2(2) < 0) {
+      w2(0) += w2(2);
+      w2(2) = 0;
+    }
+  }
+
+  if(w2(1)<0 && w2(3)<0) {
+    w2(1)=0;
+    w2(3)=0;
+  } else {
+    if (w2(1) < 0) {
+      w2(3) += w2(1);
+      w2(1) = 0;
+    }
+    if (w2(3) < 0) {
+      w2(1) += w2(3);
+      w2(3) = 0;
+    }
+  }
+
+  for (int i=0; i<4; i++) {
+    if(w2(i)<0) w2(i)=0;
+  }
+
+  //if (!(w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0)) {
+  //  cout<<w2<<endl;
+  //  w2 <<0,0,0,0;
+  //}
+}
+
 void QUAD_CTRL::getPose(double * Pose) {
   Vector3d P;
   Matrix3d Rb;
   tf::Matrix3x3 RbTf;
   double roll, pitch, yaw;
 
-  while(!_odomOk) usleep(100);
+  while(!_odomOk) usleep(10);
 
   P = _RNed.transpose()*_P;
 
@@ -117,7 +158,7 @@ void QUAD_CTRL::updateError() {
   Vector3d wbbd_des;
   Vector3d etadd_des;
 
-  //if (!_traj_completed) {
+
     _P_des[0] = _poses[_iter].pose.position.x;
     _P_des[1] = _poses[_iter].pose.position.y;
     _P_des[2] = _poses[_iter].pose.position.z;
@@ -135,63 +176,48 @@ void QUAD_CTRL::updateError() {
     _Pdd_des[2] = _accelerations[_iter].accel.linear.z;
 
     _Pdd_des = _RNed*_Pdd_des;
-  //}
+
 
   _Ep = _P - _P_des;
   _Ev = _P_dot - _Pd_des;
-  //cout<<_Ep<<endl;
-  //cout<<_P<<endl;
-  //cout<<_Pdd_des<<endl;
   zb_des = _Kp*_Ep + _Kv*_Ev + _m*g*e3 - _m*_Pdd_des;
   _uT = zb_des.transpose() * _Rb * e3;
   zb_des = zb_des/zb_des.norm();
 
-  //if(!_traj_completed) {
+
     tf::Quaternion q_des(_poses[_iter].pose.orientation.x, _poses[_iter].pose.orientation.y, _poses[_iter].pose.orientation.z,  _poses[_iter].pose.orientation.w);
     _q_des = q_des;
-    _etaDot_des << 0,0,_velocities[_iter].twist.angular.z;
-    _etadd_des << 0,0,_accelerations[_iter].accel.angular.z;
-  //}
+    wbb_des << _velocities[_iter].twist.angular.x,_velocities[_iter].twist.angular.y,_velocities[_iter].twist.angular.z;
+    wbbd_des << _accelerations[_iter].accel.angular.x,_accelerations[_iter].accel.angular.y,_accelerations[_iter].accel.angular.z;
+
   tf::Matrix3x3 Rb_des_tf(_q_des);
   //Rb_des_tf.getRPY(eta_des(0), eta_des(1), eta_des(2)); //phi theta psi
   tf::matrixTFToEigen(Rb_des_tf,Rb_des);
 
   Rb_des = _RNed*Rb_des*(_RNed.transpose()); //Rb NED transform
-
-  xb_des = Rb_des.col(0);
-  yb_des = zb_des.cross(xb_des);
-  yb_des = yb_des / yb_des.norm();
-  xb_des = yb_des.cross(zb_des);
-  Rb_des << xb_des(0), yb_des(0), zb_des(0),
-            xb_des(1), yb_des(1), zb_des(1),
-            xb_des(2), yb_des(2), zb_des(2);
+  if (!_flipping) {
+    xb_des = Rb_des.col(0);
+    yb_des = zb_des.cross(xb_des);
+    yb_des = yb_des / yb_des.norm();
+    xb_des = yb_des.cross(zb_des);
+    Rb_des << xb_des(0), yb_des(0), zb_des(0),
+              xb_des(1), yb_des(1), zb_des(1),
+              xb_des(2), yb_des(2), zb_des(2);
+  }
 
   _Rb_des = Rb_des;
 
-
-  Matrix3d Rb_des_noNED = (_RNed.transpose())*Rb_des*_RNed;
-  tf::Matrix3x3 Rb_des_noNED_tf;
-  tf::matrixEigenToTF(Rb_des_noNED,Rb_des_noNED_tf);
-  Rb_des_noNED_tf.getRPY(eta_des(0), eta_des(1), eta_des(2)); //phi theta psi
-
-  Q_des(0,0) = 1; Q_des(0,1) = 0;                Q_des(0,2) = -sin(eta_des(1));
-  Q_des(1,0) = 0; Q_des(1,1) = cos(eta_des(0));  Q_des(1,2) = cos(eta_des(1))*sin(eta_des(0));
-  Q_des(2,0) = 0; Q_des(2,1) = -sin(eta_des(0)); Q_des(2,2) = cos(eta_des(1))*cos(eta_des(0));
-
-  wbb_des = Q_des * _etaDot_des;
   Vector3d appo(wbb_des(1),wbb_des(0),-wbb_des(2));
   wbb_des = appo;
   _wbb_des = wbb_des;
+  //cout<<_wbb_des<<endl;
   //wbb_des << 0,0,0;
 
-  Qd_des(0,0) = 0; Qd_des(0,1) = 0;                               Qd_des(0,2) = -cos(eta_des(1))*_etaDot_des(1);
-  Qd_des(1,0) = 0; Qd_des(1,1) = -sin(eta_des(0))*_etaDot_des(0);  Qd_des(1,2) = -sin(eta_des(1))*_etaDot_des(1)*sin(eta_des(0)) + cos(eta_des(1))*_etaDot_des(0)*cos(eta_des(0));
-  Qd_des(2,0) = 0; Qd_des(2,1) = -cos(eta_des(0))*_etaDot_des(0);  Qd_des(2,2) = -sin(eta_des(1))*_etaDot_des(1)*cos(eta_des(0)) - cos(eta_des(1))*_etaDot_des(0)*sin(eta_des(0));
 
-  wbbd_des = Qd_des * _etaDot_des + Q_des * _etadd_des;
   Vector3d appo1(wbbd_des(1),wbbd_des(0),-wbbd_des(2));
   wbbd_des = appo1;
   _wbbd_des = wbbd_des;
+  //cout<<_wbbd_des<<endl;
 
   _Er = 0.5*Vee(_Rb_des.transpose()*_Rb - _Rb.transpose()*_Rb_des);
   _Ew = _wbb - _Rb.transpose()*_Rb_des*_wbb_des;
@@ -234,6 +260,7 @@ QUAD_CTRL::QUAD_CTRL() {
     _odomOk = false;
     _iter = 0;
     _shutdown = false;
+    _flipping = false;
 
     _P.resize(3);
     _Eta.resize(3);
@@ -256,8 +283,8 @@ QUAD_CTRL::QUAD_CTRL() {
 
     _Kp = 5;
     _Kv = _Kp/2;
-    _Kr = 0.4;
-    _Kw = _Kr/5;
+    _Kr = 6*0.4;
+    _Kw = _Kr/6;
 
 }
 
@@ -345,6 +372,8 @@ void QUAD_CTRL::ctrl_loop() {
   }
 
   while( ros::ok() && !_shutdown ) {
+    while(!_odomOk) usleep(1);
+    _odomOk = false;
 
     if (!_isLanding) {
       updateError();
@@ -356,20 +385,20 @@ void QUAD_CTRL::ctrl_loop() {
       w2 = _G.inverse() * controlInput;
 //cout<<_Ep<<endl;
       _comm.header.stamp = ros::Time::now();
-    /*  _comm.angular_velocities[0] = sqrt(w2(3));
-      _comm.angular_velocities[1] = sqrt(w2(2));
-      _comm.angular_velocities[2] = sqrt(w2(1));
-      _comm.angular_velocities[3] = sqrt(w2(0)); */
+
+      correctW(w2);
 
       if (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0) {
         _comm.angular_velocities[0] = sqrt(w2(3));
         _comm.angular_velocities[1] = sqrt(w2(2));
         _comm.angular_velocities[2] = sqrt(w2(1));
         _comm.angular_velocities[3] = sqrt(w2(0));
+        if(_flipping) cout<<_comm.angular_velocities[0]<<" "<<_comm.angular_velocities[1]<<" "<<_comm.angular_velocities[2]<<" "<<_comm.angular_velocities[3]<<endl;
       }
       else {
         ROS_WARN("w problem");
         //cout<<controlInput<<endl;
+        cout<<w2<<endl;
         //cout<<_Ep<<endl;
       }
       //assert (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0);
@@ -411,13 +440,13 @@ int main( int argc, char** argv) {
 
     double limits[6]={-1,6,-1,6,0,5};
 
-    std::vector<std::array<double, 4>> wayPoints;
-    std::array<double, 4> point0 = {1,0,0.06,0};
-    std::array<double, 4> point1 = {3,3,3,0};
-    std::array<double, 4> point2 = {5.4,1.4,0.07,0};
+    std::vector<std::array<double, 5>> wayPoints;
+    std::array<double, 5> point0 = {0,0,1,0,0};
+    std::array<double, 5> point1 = {0,0,1,0,1};
+    std::array<double, 5> point2 = {0,0,0.07,0,0};
     wayPoints.push_back(point2);
     wayPoints.push_back(point1);
-    //wayPoints.push_back(point0);
+    wayPoints.push_back(point0);
 
     QUAD_CTRL c;
     QUAD_PLAN p(limits);
@@ -428,22 +457,26 @@ int main( int argc, char** argv) {
     boost::thread cb_server_t ( &cb_server );
 
     while (wayPoints.size()>0) {
-      std::array<double, 4> point = wayPoints.back();
+      std::array<double, 5> point = wayPoints.back();
       wayPoints.pop_back();
       double init[4];
       double goal[] = {point[0],point[1],point[2],point[3]};
+      bool doFlip = (point[4]>0);
 
       c.getPose(init);
       //cout<<endl<<init[0]<<" "<<init[1]<<" "<<init[2]<<" "<<init[3]<<endl;
-      p.setGoal(init, goal);
+      p.setGoal(init, goal, doFlip);
       while(!p.isPlanned()) usleep(1000);
+
+      if(doFlip) c._flipping = true;
 
       c.setTraj(p.poses, p.velocities, p.accelerations);
       while(!c.isTrajCompleted()) usleep(1000);
+      c._flipping = false;
 
       //TODO FLIP
       ROS_WARN("WAYPOINT REACHED!");
-      sleep(1);
+      sleep(5);
     }
 
     c.land();

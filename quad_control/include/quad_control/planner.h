@@ -1,6 +1,8 @@
 #include "ros/ros.h"
 #include "boost/thread.hpp"
 #include <tf/tf.h>
+#include <tf_conversions/tf_eigen.h>
+#include <tf/transform_listener.h>
 #include <eigen3/Eigen/Dense>
 
 #include "fcl/config.h"
@@ -20,7 +22,7 @@
 using namespace std;
 using namespace Eigen;
 
-#define TimeRate 100
+#define TimeRate 1000
 
 struct Node {
   std::vector<Node*> children;
@@ -36,7 +38,7 @@ class QUAD_PLAN {
         ~QUAD_PLAN() {_shutdown = true; };
         void run();
         void plan();
-        void setGoal(const double* init, const double * goal);
+        void setGoal(const double* init, const double * goal, const bool flip);
         nav_msgs::Path generated_path;
         nav_msgs::Path filtered_path;
         nav_msgs::Path cubic_path;
@@ -62,6 +64,7 @@ class QUAD_PLAN {
         bool _new_goal;
         double _tresh;
         bool _planned;
+        bool _flip;
         double nDist (const Node* n1, const Node* n2);
         Node* searchTree(Node* root, Node* newPose);
         bool AstarSearchTree(Node* root, Node* goal, bool rootTree);
@@ -70,5 +73,7 @@ class QUAD_PLAN {
         void filterPath();
         void debug_loop();
         void clearTree(Node* root);
+        void R_axisAngle(double t, Vector3d r, Matrix3d &R);
+        void planFlip();
         bool _shutdown;
 };

@@ -22,8 +22,6 @@ find_package(catkin REQUIRED COMPONENTS
   tf_conversions
   sensor_msgs
 	message_generation
-	actionlib
-	actionlib_msgs
 )
 
 
@@ -75,10 +73,10 @@ find_package(catkin REQUIRED COMPONENTS
 # )
 
 ## Generate actions in the 'action' folder
-add_action_files(
-   FILES
+#add_action_files(
+#   FILES
 #	 nav.action
-)
+#)
 
 ## Generate added messages and services with any dependencies listed here
 generate_messages(
