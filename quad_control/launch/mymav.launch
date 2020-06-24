@@ -43,7 +43,7 @@
     <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
     <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" />
 
-    <node pkg="tf" type="static_transform_publisher" name="maptf" args="0 0 0 0 0 0  world map  100"/>
+    <node pkg="tf" type="static_transform_publisher" name="maptf" args="0 0 0 0 0 0  world /map  100"/>
     <node pkg="tf" type="static_transform_publisher" name="wNED" args="0 0 0 1.57079 0 3.14159  world worldNED  100"/>
    <node pkg="tf" type="static_transform_publisher" name="bodyNED" args="0 0 0 1.57079 0 3.14159  hummingbird/base_link hummingbird/base_linkNED  100"/>
 

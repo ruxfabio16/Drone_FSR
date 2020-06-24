@@ -8,6 +8,7 @@
 #include <eigen3/Eigen/Dense>
 
 #include <nav_msgs/Path.h>
+#include <std_msgs/Float64MultiArray.h>
 
 #include "../include/quad_control/planner.h"
 
@@ -50,6 +51,8 @@ class QUAD_CTRL {
         ros::NodeHandle _nh;
         ros::Subscriber _odom_sub;
         ros::Publisher _cmd_vel_pub;
+        ros::Publisher _error_pub;
+        ros::Publisher _forces_pub;
         Vector3d _P;
         Vector3d _P_dot;
         Vector3d _Eta;
@@ -228,11 +231,35 @@ void QUAD_CTRL::updateError() {
   //cout<<"Meas: "<<_Eta(2)<<" - Des: "<<eta_des(2)<<endl;
   if (_iter < (_poses.size() - 1)) _iter++;
   else if (!_traj_completed) {
+  /*  if(_flipping) {
+      _poses[_iter].pose.position.x = _P(0);
+      _poses[_iter].pose.position.y = _P(1);
+      _poses[_iter].pose.position.z = _P(2);
+    } */
     _traj_completed = true;
     _traj_ready = false;
   }
 
   _odomOk =true;
+
+  std_msgs::Float64MultiArray errors_data;
+  std_msgs::Float64MultiArray forces_data;
+  forces_data.data.resize(4);
+  errors_data.data.resize(12);
+  for (int i=0; i<3; i++) {
+    errors_data.data[i] = _Ep(i);
+    errors_data.data[i+3] = _Ev(i);
+    errors_data.data[i+6] = _Er(i);
+    errors_data.data[i+9] = _Ew(i);
+  }
+
+  forces_data.data[0] = _uT;
+  for (int i=0; i<3; i++)
+    forces_data.data[1+i] = _tau_b(i);
+
+  _forces_pub.publish(forces_data);
+  _error_pub.publish(errors_data);
+
 
 }
 
@@ -252,6 +279,8 @@ void QUAD_CTRL::setTraj(std::vector<geometry_msgs::PoseStamped> p, std::vector<g
 QUAD_CTRL::QUAD_CTRL() {
     _odom_sub = _nh.subscribe("/hummingbird/ground_truth/odometry", 0, &QUAD_CTRL::odom_cb, this);
     _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>("/hummingbird/command/motor_speed", 0);
+    _error_pub = _nh.advertise<std_msgs::Float64MultiArray>("/controller/errors", 0);
+    _forces_pub = _nh.advertise<std_msgs::Float64MultiArray>("/controller/forces", 0);
 
     _traj_ready = false;
     _traj_completed = false;
@@ -393,7 +422,7 @@ void QUAD_CTRL::ctrl_loop() {
         _comm.angular_velocities[1] = sqrt(w2(2));
         _comm.angular_velocities[2] = sqrt(w2(1));
         _comm.angular_velocities[3] = sqrt(w2(0));
-        if(_flipping) cout<<_comm.angular_velocities[0]<<" "<<_comm.angular_velocities[1]<<" "<<_comm.angular_velocities[2]<<" "<<_comm.angular_velocities[3]<<endl;
+      //  if(_flipping) cout<<_comm.angular_velocities[0]<<" "<<_comm.angular_velocities[1]<<" "<<_comm.angular_velocities[2]<<" "<<_comm.angular_velocities[3]<<endl;
       }
       else {
         ROS_WARN("w problem");
@@ -441,9 +470,9 @@ int main( int argc, char** argv) {
     double limits[6]={-1,6,-1,6,0,5};
 
     std::vector<std::array<double, 5>> wayPoints;
-    std::array<double, 5> point0 = {0,0,1,0,0};
-    std::array<double, 5> point1 = {0,0,1,0,1};
-    std::array<double, 5> point2 = {0,0,0.07,0,0};
+    std::array<double, 5> point0 = {3,3,3,M_PI,0};
+    std::array<double, 5> point1 = {3,3,3,M_PI,1};
+    std::array<double, 5> point2 = {1.5,5.5,0.07,0,0};
     wayPoints.push_back(point2);
     wayPoints.push_back(point1);
     wayPoints.push_back(point0);

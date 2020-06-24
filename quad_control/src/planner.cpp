@@ -86,8 +86,9 @@ bool QUAD_PLAN::AstarSearchTree(Node* root, Node* goal, bool rootTree) {
     open.erase(open.begin()+bestPos); //Lo elimino dai nodi da controllare
     //ROS_INFO("Nodo cancellato");
 
-    if (nDist(bestNode,goal)==0)
+    if (nDist(bestNode,goal)==0) {
       found = true;
+    }
     else {
       size_t size = bestNode->children.size();
 
@@ -103,13 +104,14 @@ bool QUAD_PLAN::AstarSearchTree(Node* root, Node* goal, bool rootTree) {
     if(rootTree)  ROS_INFO("Astar root trovato");
     else ROS_INFO("Astar goal trovato");
 
-    Node * start = goal;
+    Node * start = bestNode;
     while (start != root) {
       //ROS_INFO("Aggiungo");
     //while (nDist(start,root)!=0) {
       p.pose.position.x = start->p[0];
       p.pose.position.y = start->p[1];
       p.pose.position.z = start->p[2];
+      //cout<<p.pose.position.z<<endl;
 
       p.pose.orientation.x = 0;
       p.pose.orientation.y = 0;
@@ -123,7 +125,7 @@ bool QUAD_PLAN::AstarSearchTree(Node* root, Node* goal, bool rootTree) {
 
       start = start->parent;
     }
-
+//ROS_INFO("Ultimo");
     p.pose.position.x = root->p[0];
     p.pose.position.y = root->p[1];
     p.pose.position.z = root->p[2];
@@ -133,7 +135,7 @@ bool QUAD_PLAN::AstarSearchTree(Node* root, Node* goal, bool rootTree) {
       generated_path.poses.insert(generated_path.poses.end(), p);
 
   }
-//ROS_INFO("Finito");
+  //ROS_INFO("Finito");
   return found;
 }
 
@@ -415,11 +417,11 @@ void QUAD_PLAN::plan() {
       ROS_INFO("Cerco un path...");
 
       if (rootFound) {
-        if ( AstarSearchTree(root, q_near, true) ) ROS_INFO("Path trovato");
+        if ( AstarSearchTree(root, goal, true) ) ROS_INFO("Path trovato");
         else ROS_INFO("Path non trovato");
       }
       else if (goalFound) {
-        if ( AstarSearchTree(goal, q_rand_goal, false) ) ROS_INFO("Path trovato");
+        if ( AstarSearchTree(goal, root, false) ) ROS_INFO("Path trovato");
         else ROS_INFO("Path non trovato");
       }
       else if(found) {
@@ -504,7 +506,14 @@ void QUAD_PLAN::generateTraj() {
     }
 
     Vector3d dist = pointf-pointi;
-    tf = dist.norm()/0.2;
+    double speed = 0.2;
+    if(i<=15)
+      speed = 0.01 + 0.19/15.0 * i;
+    else if(i>=(nPoses-1-6-10))
+      speed = 0.01 + 0.19/15.0 * (nPoses-i-2);
+    //tf = dist.norm()/0.2;
+    tf = dist.norm()/speed;
+    cout<<speed<<endl;
 
     std::vector<Vector4d> aVec;
     Vector3d xp_old;
@@ -698,7 +707,7 @@ void QUAD_PLAN::generateTraj() {
   geometry_msgs::TwistStamped vel;
   geometry_msgs::AccelStamped acc;
   pos = poses.back();
-  for (int i=0; i<5; i++) {
+  for (int i=0; i<1000; i++) {
     poses.push_back(pos);
     velocities.push_back(vel);
     accelerations.push_back(acc);
