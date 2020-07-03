@@ -30,6 +30,8 @@ struct Node {
 
   Vector3d p;
   double yaw;
+
+  float hCost;
 };
 
 class QUAD_PLAN {

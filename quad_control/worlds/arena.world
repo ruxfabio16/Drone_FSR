@@ -285,10 +285,10 @@
       <static>1</static>
     </model>
     <state world_name='default'>
-      <sim_time>386 449000000</sim_time>
-      <real_time>34 557129801</real_time>
-      <wall_time>1590743629 401760854</wall_time>
-      <iterations>23019</iterations>
+      <sim_time>662 612000000</sim_time>
+      <real_time>565 892964057</real_time>
+      <wall_time>1593788716 668854022</wall_time>
+      <iterations>276163</iterations>
       <model name='arenaVolo'>
         <pose frame=''>2.5 2.5 0 0 -0 0</pose>
         <scale>1 1 1</scale>
@@ -318,13 +318,13 @@
         </link>
       </model>
       <model name='arena_cylinder'>
-        <pose frame=''>0.87476 4.38621 0.499991 0 -0 0</pose>
+        <pose frame=''>0.874756 4.38621 0.5 0 -0 0</pose>
         <scale>1 1 1</scale>
         <link name='link_clone_clone'>
-          <pose frame=''>1.50665 4.51063 0.499991 0 -0 0</pose>
+          <pose frame=''>1.50665 4.51063 0.5 0 -0 0</pose>
           <velocity>0 0 0 0 -0 0</velocity>
-          <acceleration>0 0 -9.8 0 -0 0</acceleration>
-          <wrench>0 0 -9.8 0 -0 0</wrench>
+          <acceleration>0.000108 0 0 0 4.3e-05 0</acceleration>
+          <wrench>0.000108 0 0 0 -0 0</wrench>
         </link>
       </model>
       <model name='arena_cylinder_0'>
@@ -363,7 +363,7 @@
     </state>
     <gui fullscreen='0'>
       <camera name='user_camera'>
-        <pose frame=''>0.153308 0.134916 2.02363 0 0.9818 1.20942</pose>
+        <pose frame=''>-1.12698 4.75526 8.10214 0 1.284 0.492</pose>
         <view_controller>orbit</view_controller>
         <projection_type>perspective</projection_type>
       </camera>

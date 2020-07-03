@@ -66,6 +66,7 @@ bool QUAD_PLAN::AstarSearchTree(Node* root, Node* goal, bool rootTree) {
 
   if (!rootTree) goal = searchTree(root,goal);
   std::vector<Node*> open;
+  root->hCost=0;
   open.push_back(root);
   root->parent = root;
   double bestDist = nDist(root, goal)+100;
@@ -76,7 +77,8 @@ bool QUAD_PLAN::AstarSearchTree(Node* root, Node* goal, bool rootTree) {
     size_t i=0;
     size_t bestPos = 0;
     for (i=0; i<open.size(); i++) {
-      if ( (nDist(open[i], root) + nDist(open[i], goal)) < bestDist ) {
+      //if ( (nDist(open[i], root) + nDist(open[i], goal)) < bestDist ) {
+      if ( ( (open[i]->hCost) + nDist(open[i], goal) ) < bestDist ) {
         bestNode = open[i]; //Trovo il migliore
         //ROS_INFO("Migliore trovato");
         bestPos=i;
@@ -95,6 +97,7 @@ bool QUAD_PLAN::AstarSearchTree(Node* root, Node* goal, bool rootTree) {
       for (int i=0; i<size; i++) {
         open.push_back( bestNode->children[i] );
         bestNode->children[i]->parent = bestNode;
+        bestNode->children[i]->hCost = bestNode->hCost + nDist(bestNode,bestNode->children[i]);
       }
     }
 
@@ -425,7 +428,7 @@ void QUAD_PLAN::plan() {
         else ROS_INFO("Path non trovato");
       }
       else if(found) {
-        ROS_INFO("Connessione trovata");
+        ROS_INFO("Trees connected");
         if ( AstarSearchTree(root, q_near, true) && AstarSearchTree(goal, q_near, false) ) ROS_INFO("Path trovato");
         else ROS_INFO("Path non trovato");
       }
@@ -508,12 +511,12 @@ void QUAD_PLAN::generateTraj() {
     Vector3d dist = pointf-pointi;
     double speed = 0.2;
     if(i<=15)
-      speed = 0.01 + 0.19/15.0 * i;
+      speed = 0.03 + 0.17/15.0 * i;
     else if(i>=(nPoses-1-6-10))
-      speed = 0.01 + 0.19/15.0 * (nPoses-i-2);
+      speed = 0.03 + 0.17/15.0 * (nPoses-i-2);
     //tf = dist.norm()/0.2;
     tf = dist.norm()/speed;
-    cout<<speed<<endl;
+    //cout<<speed<<endl;
 
     std::vector<Vector4d> aVec;
     Vector3d xp_old;

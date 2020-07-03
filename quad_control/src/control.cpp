@@ -185,6 +185,12 @@ void QUAD_CTRL::updateError() {
   _Ev = _P_dot - _Pd_des;
   zb_des = _Kp*_Ep + _Kv*_Ev + _m*g*e3 - _m*_Pdd_des;
   _uT = zb_des.transpose() * _Rb * e3;
+  if(_isLanding) {
+    _Ep(2)=_Ev(2)=0;
+    zb_des = _Kp*_Ep + _Kv*_Ev + _m*g*e3 - _m*_Pdd_des;
+    _uT = zb_des.transpose() * _Rb * e3;
+    _uT = 0.95*_uT;
+  }
   zb_des = zb_des/zb_des.norm();
 
 
@@ -404,7 +410,7 @@ void QUAD_CTRL::ctrl_loop() {
     while(!_odomOk) usleep(1);
     _odomOk = false;
 
-    if (!_isLanding) {
+  //  if (!_isLanding) {
       updateError();
       controlInput(0) = _uT;
       controlInput(1) = _tau_b(0);
@@ -431,7 +437,7 @@ void QUAD_CTRL::ctrl_loop() {
         //cout<<_Ep<<endl;
       }
       //assert (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0);
-    }
+  /*  }
     else {
       _comm.header.stamp = ros::Time::now();
       bool landed = true;
@@ -445,6 +451,14 @@ void QUAD_CTRL::ctrl_loop() {
       }
 
       if(landed) _landed = true;
+    } */
+    if(_isLanding && _P(2)>-0.065) _landed=true;
+
+    if(_landed) {
+      _comm.angular_velocities[0] = 0;
+      _comm.angular_velocities[1] = 0;
+      _comm.angular_velocities[2] = 0;
+      _comm.angular_velocities[3] = 0;
     }
 
     _cmd_vel_pub.publish (_comm);
@@ -471,8 +485,8 @@ int main( int argc, char** argv) {
 
     std::vector<std::array<double, 5>> wayPoints;
     std::array<double, 5> point0 = {3,3,3,M_PI,0};
-    std::array<double, 5> point1 = {3,3,3,M_PI,1};
-    std::array<double, 5> point2 = {1.5,5.5,0.07,0,0};
+    std::array<double, 5> point1 = {3,3,3,M_PI,1}; //FLIP
+    std::array<double, 5> point2 = {1.5,5.5,0.15,0,0};
     wayPoints.push_back(point2);
     wayPoints.push_back(point1);
     wayPoints.push_back(point0);
@@ -508,6 +522,7 @@ int main( int argc, char** argv) {
       sleep(5);
     }
 
+    ROS_WARN("LANDING!");
     c.land();
     while (!c.isLanded()) usleep(1000);
     shut = true;
