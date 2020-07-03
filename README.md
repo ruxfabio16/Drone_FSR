@@ -31,7 +31,7 @@ For the mathematical computation, is also needed the Eigen library http://eigen.
  $ roslaunch quad_control mymav.launch gui:=true
  ```
 
- 2. Launch the octomap server in order to see the obstacles in Rviz:
+ 2. (Optional) Once Gazebo and Rviz have started, publish the arena map with:
  ```
  $ rosrun octomap_server octomap_server_node /path/to/quad_control/arena.bt
  ```
