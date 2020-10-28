@@ -32,7 +32,7 @@ For the mathematical computation, is also needed the Eigen library http://eigen.
 
 ## Quadrotor parameters
  -----------
- The only parameters your should need are the Inertia matrix `I=diag(0.007, 0.007, 0.012)Kgm^2` and the quadrotor mass *m*=0.68 Kg
+ The only parameters your should need are the Inertia matrix `*I*=diag(0.007, 0.007, 0.012) Kgm^2` and the quadrotor mass `*m*=0.68 Kg`.
 
 ## Pro Tips
  -----------
