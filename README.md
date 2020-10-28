@@ -6,15 +6,12 @@ You will need all the packages on which the RotorS library already depends.
 For the mathematical computation, is also needed the Eigen library http://eigen.tuxfamily.org/.
 
 ## Installation instructions - Ubuntu 18.04 with ROS Melodic
----------------------------------------------------------
  1. Create a ROS workspace and clone this repository inside *your_workspace/src* folder. Compile all these ros packages inside the workspace with the following command (you may need to install others ROS dependencies if some errors appears during the compilation):
     ```
     $ catkin_make
     ```
 
 ## Usage and testing
- -----------
-
  1. Use the provided launchfile to open the gazebo scene and Rviz:
     ```
     $ roslaunch quad_control mymav.launch
@@ -31,11 +28,9 @@ For the mathematical computation, is also needed the Eigen library http://eigen.
 5. You can create your flying controller and planner in the quad_control folder. Just adjust the CMake file to your needs.
 
 ## Quadrotor parameters
- -----------
  The only parameters your should need are the Inertia matrix `I=diag(0.007, 0.007, 0.012) Kg m^2` and the quadrotor mass `m=0.68 Kg`.
 
 ## Pro Tips
- -----------
 
   1. Once you have created a trajectory planner, you can easily check your trajectory by publishing it with a **nav_msgs/Path** message type. This kind of message can be printed from rviz and provides a useful visual feedback to check if the planner is working as expected.
 
