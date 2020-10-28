@@ -30,6 +30,9 @@ For the mathematical computation, is also needed the Eigen library http://eigen.
 
 5. You can create your flying controller and planner in the quad_control folder. Just adjust the CMake file to your needs.
 
+## Quadrotor parameters
+ -----------
+ The only parameters your should need are the Inertia matrix `I=diag(0.007, 0.007, 0.012)Kgm^2` and the quadrotor mass *m*=0.68 Kg
 
 ## Pro Tips
  -----------
