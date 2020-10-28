@@ -8,6 +8,7 @@
 #include <eigen3/Eigen/Dense>
 
 #include <nav_msgs/Path.h>
+#include <geometry_msgs/Wrench.h>
 #include <std_msgs/Float64MultiArray.h>
 
 #include "../include/quad_control/planner.h"
@@ -88,7 +89,7 @@ class QUAD_CTRL {
         Vector3d _tau_b;
         bool _isSettingTraj;
         tf::Quaternion _q_des;
-        mav_msgs::Actuators _comm;
+        geometry_msgs::Wrench _comm;
         bool _shutdown;
 };
 
@@ -283,8 +284,8 @@ void QUAD_CTRL::setTraj(std::vector<geometry_msgs::PoseStamped> p, std::vector<g
 }
 
 QUAD_CTRL::QUAD_CTRL() {
-    _odom_sub = _nh.subscribe("/hummingbird/ground_truth/odometry", 0, &QUAD_CTRL::odom_cb, this);
-    _cmd_vel_pub = _nh.advertise< mav_msgs::Actuators>("/hummingbird/command/motor_speed", 0);
+    _odom_sub = _nh.subscribe("/hummingbird/ground_truth/odometryNED", 0, &QUAD_CTRL::odom_cb, this);
+    _cmd_vel_pub = _nh.advertise< geometry_msgs::Wrench>("/hummingbird/command/wrenchNED", 0);
     _error_pub = _nh.advertise<std_msgs::Float64MultiArray>("/controller/errors", 0);
     _forces_pub = _nh.advertise<std_msgs::Float64MultiArray>("/controller/forces", 0);
 
@@ -335,8 +336,8 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
     tf::Vector3 etaDot;
 
     tf::Quaternion q(odom->pose.pose.orientation.x, odom->pose.pose.orientation.y, odom->pose.pose.orientation.z,  odom->pose.pose.orientation.w);
-    tf::Matrix3x3 Rb(q);
-    tf::Matrix3x3 RbNed = RNed*Rb*(RNed.transpose());
+    tf::Matrix3x3 RbNed(q);
+    //tf::Matrix3x3 RbNed = RNed*Rb*(RNed.transpose());
 
     RbNed.getRPY(_Eta(0), _Eta(1), _Eta(2)); //phi theta psi
     tf::matrixTFToEigen (RbNed, _Rb);
@@ -346,7 +347,7 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
     p[1] = odom->pose.pose.position.y;
     p[2] = odom->pose.pose.position.z;
 
-    p = RNed*p;
+    //p = RNed*p;
     _P(0) = p[0];
     _P(1) = p[1];
     _P(2) = p[2];
@@ -359,7 +360,7 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
     pDot[1] = odom->twist.twist.linear.y;
     pDot[2] = odom->twist.twist.linear.z;
     //cout<<odom->twist.twist.linear.x;
-    pDot = RNed*Rb*pDot;
+    pDot = RbNed*pDot;
     //cout<<pDot[0];
     //pDot = RNed*Rb*pDot*RNed.transpose();
 
@@ -367,9 +368,9 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
     _P_dot(1) = pDot[1];
     _P_dot(2) = pDot[2];
 
-    wbb[0] = odom->twist.twist.angular.y;
-    wbb[1] = odom->twist.twist.angular.x;
-    wbb[2] = -odom->twist.twist.angular.z;
+    wbb[0] = odom->twist.twist.angular.x;
+    wbb[1] = odom->twist.twist.angular.y;
+    wbb[2] = odom->twist.twist.angular.z;
 
     _wbb(0) = wbb[0];
     _wbb(1) = wbb[1];
@@ -386,13 +387,12 @@ void QUAD_CTRL::odom_cb( nav_msgs::OdometryConstPtr odom ) {
 void QUAD_CTRL::ctrl_loop() {
 
   ros::Rate r(TimeRate);
-  _comm.angular_velocities.resize(4);
-  _comm.angular_velocities[0] = 0;
-  _comm.angular_velocities[1] = 0;
-  _comm.angular_velocities[2] = 0;
-  _comm.angular_velocities[3] = 0;
-  Vector4d w2, controlInput;
-
+  _comm.force.x=0;
+  _comm.force.y=0;
+  _comm.force.z=0;
+  _comm.torque.x=0;
+  _comm.torque.y=0;
+  _comm.torque.z=0;
 
   /* Red: 0 poi gli 1-2-3 in senso antiorario
      0 frontale asse x - 1 frontale asse y
@@ -410,55 +410,21 @@ void QUAD_CTRL::ctrl_loop() {
     while(!_odomOk) usleep(1);
     _odomOk = false;
 
-  //  if (!_isLanding) {
+
       updateError();
-      controlInput(0) = _uT;
-      controlInput(1) = _tau_b(0);
-      controlInput(2) = _tau_b(1);
-      controlInput(3) = _tau_b(2);
+      _comm.force.z = _uT;
+      _comm.torque.x = _tau_b(0);
+      _comm.torque.y = _tau_b(1);
+      _comm.torque.z = _tau_b(2);
 
-      w2 = _G.inverse() * controlInput;
-//cout<<_Ep<<endl;
-      _comm.header.stamp = ros::Time::now();
 
-      correctW(w2);
-
-      if (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0) {
-        _comm.angular_velocities[0] = sqrt(w2(3));
-        _comm.angular_velocities[1] = sqrt(w2(2));
-        _comm.angular_velocities[2] = sqrt(w2(1));
-        _comm.angular_velocities[3] = sqrt(w2(0));
-      //  if(_flipping) cout<<_comm.angular_velocities[0]<<" "<<_comm.angular_velocities[1]<<" "<<_comm.angular_velocities[2]<<" "<<_comm.angular_velocities[3]<<endl;
-      }
-      else {
-        ROS_WARN("w problem");
-        //cout<<controlInput<<endl;
-        cout<<w2<<endl;
-        //cout<<_Ep<<endl;
-      }
-      //assert (w2(0)>=0 && w2(1)>=0 && w2(2)>=0 && w2(3)>=0);
-  /*  }
-    else {
-      _comm.header.stamp = ros::Time::now();
-      bool landed = true;
-
-      for (int i=0; i<4; i++) {
-        _comm.angular_velocities[i] = _comm.angular_velocities[i]-1;
-        if (_comm.angular_velocities[i]<0) {
-           _comm.angular_velocities[i] = 0;
-        }
-        else landed = false;
-      }
-
-      if(landed) _landed = true;
-    } */
     if(_isLanding && _P(2)>-0.065) _landed=true;
 
     if(_landed) {
-      _comm.angular_velocities[0] = 0;
-      _comm.angular_velocities[1] = 0;
-      _comm.angular_velocities[2] = 0;
-      _comm.angular_velocities[3] = 0;
+      _comm.force.z = 0;
+      _comm.torque.x = 0;
+      _comm.torque.y = 0;
+      _comm.torque.z = 0;
     }
 
     _cmd_vel_pub.publish (_comm);

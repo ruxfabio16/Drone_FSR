@@ -190,7 +190,7 @@ QUAD_PLAN::QUAD_PLAN(const double * boundaries) {
     _boundaries[i] = boundaries[i];
 
   _new_goal = false;
-  _tresh = 0.02;
+  _tresh = 0.1;
   _planned = false;
   _shutdown = false;
 }
