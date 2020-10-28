@@ -11,8 +11,6 @@
       (even when Gazebo is started through roslaunch) -->
   <arg name="verbose" default="false"/>
   <arg name="rvizconfig" default="$(find quad_control)/drone.rviz" />
-  <param name="arena_path" type="string" value="$(arg arenabt)" />
-
 
   <env name="GAZEBO_MODEL_PATH" value="${GAZEBO_MODEL_PATH}:$(find rotors_gazebo)/models"/>
   <env name="GAZEBO_RESOURCE_PATH" value="${GAZEBO_RESOURCE_PATH}:$(find rotors_gazebo)/models"/>
