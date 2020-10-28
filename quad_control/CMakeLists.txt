@@ -14,8 +14,6 @@ include_directories(${Eigen_INCLUDE_DIRS})
 find_package(catkin REQUIRED COMPONENTS
   gazebo_msgs
   geometry_msgs
-  octomap_msgs
-  octomap_ros
   roscpp
   roslib
 	tf
@@ -131,13 +129,6 @@ include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
 )
-
-
-add_executable( quad_controller src/control.cpp src/planner.cpp)
-target_link_libraries( quad_controller ${catkin_LIBRARIES} ${Boost_LIBRARIES} fcl)
-
-add_executable( broadcast src/broadcastTF.cpp)
-target_link_libraries( broadcast ${catkin_LIBRARIES})
 
 
 ## Declare a C++ library
