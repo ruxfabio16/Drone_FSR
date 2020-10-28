@@ -1,5 +1,5 @@
 # Quadrotor Library
-The ned_plugin folder contains the source code for the ned_conv gazebo world plugin used to convert the ENU odometry and Force/Torque commands into NED ones. This plugin is already included in the provided arena.world file. You can put your code inside the quad_control folder. All the other folders are from the [RotorS MAV simulator](https://github.com/ethz-asl/rotors_simulator) and provide the dynamic Gazebo model of the [AscTec Hummingbird](http://www.asctec.de/en/uav-uas-drone-products/asctec-hummingbird/) quadcopter.
+The *ned_plugin* folder contains the source code for the *ned_conv* gazebo world plugin used to convert the ENU odometry and Force/Torque commands into NED ones. This plugin is already included in the provided *arena.world* file. You can put your code inside the *quad_control* folder. All the other folders are from the [RotorS MAV simulator](https://github.com/ethz-asl/rotors_simulator) and provide the dynamic Gazebo model of the [AscTec Hummingbird](http://www.asctec.de/en/uav-uas-drone-products/asctec-hummingbird/) quadcopter.
 
 ## Prerequisites
 You will need all the packages on which the RotorS library already depends.
@@ -7,7 +7,7 @@ For the mathematical computation, is also needed the Eigen library http://eigen.
 
 ## Installation instructions - Ubuntu 18.04 with ROS Melodic
 ---------------------------------------------------------
- 1. Create a ROS workspace and clone this repository inside your_workspace/src folder. Compile all these ros packages inside the workspace with the following command (you may need to install others ROS dependencies if some errors appears during the compilation):
+ 1. Create a ROS workspace and clone this repository inside *your_workspace/src* folder. Compile all these ros packages inside the workspace with the following command (you may need to install others ROS dependencies if some errors appears during the compilation):
     ```
     $ catkin_make
     ```
@@ -20,7 +20,7 @@ For the mathematical computation, is also needed the Eigen library http://eigen.
     $ roslaunch quad_control mymav.launch
     ```
 
- 2. You will need to create your flying arena in Gazebo. To do that, you can just modify the "arena.world" file inside "quad_control/worlds".
+ 2. You will need to create your flying arena in Gazebo. To do that, you can just modify the *arena.world* file inside *quad_control/worlds*.
 
  3. The two most important reference frames are **worldNED** and **hummingbird/base_linkNED**. The goal of the project is to generate a trajectory and control the quadrotor in order to move the **hummingbird/base_linkNED** (attached to the quadrotor body) with respect to **worldNED** (the fixed frame in the world).
 
