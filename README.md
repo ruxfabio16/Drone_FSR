@@ -1,19 +1,8 @@
-# Quadrotor FSR
-Project C2-P2. FSR exam - Eugenio Cuniato.
-
-The developed controller is inside the "quad_control" folder. All the other folders are from the [RotorS MAV simulator](https://github.com/ethz-asl/rotors_simulator) and provide the dynamic Gazebo model of the [AscTec Hummingbird](http://www.asctec.de/en/uav-uas-drone-products/asctec-hummingbird/) quadcopter.
+# Quadrotor Library
+The ned_plugin folder contains the source code for the ned_conv gazebo world plugin used to convert the ENU odometry and Force/Torque commands into NED ones. All the other folders are from the [RotorS MAV simulator](https://github.com/ethz-asl/rotors_simulator) and provide the dynamic Gazebo model of the [AscTec Hummingbird](http://www.asctec.de/en/uav-uas-drone-products/asctec-hummingbird/) quadcopter.
 
 ## Prerequisites
-To compile this project you need the fcl library from https://github.com/flexible-collision-library/fcl. This can be simply installed with:
- ```
-sudo apt-get install ros-melodic-fcl-catkin
-```
-
-You will also need the Octomap package http://octomap.github.io/. This can be simply installed with:
- ```
-sudo apt-get ros-melodic-octomap
- ```
-
+You will need all the packages on which the RotorS library already depends.
 For the mathematical computation, is also needed the Eigen library http://eigen.tuxfamily.org/.
 
 ## Installation instructions - Ubuntu 18.04 with ROS Melodic
@@ -28,15 +17,9 @@ For the mathematical computation, is also needed the Eigen library http://eigen.
 
  1. Use the provided launchfile to open the gazebo scene and Rviz:
  ```
- $ roslaunch quad_control mymav.launch gui:=true
+ $ roslaunch quad_control mymav.launch
  ```
 
- 2. (Optional) Once Gazebo and Rviz have started, publish the arena map with:
- ```
- $ rosrun octomap_server octomap_server_node /path/to/quad_control/arena.bt
- ```
+ 2. You will need to create your flying arena in Gazebo. To do that, you can just modify the "arena.world" file inside "quad_control/worlds".
 
- 3. Launch the quadcopter controller to have it moving between different waypoints and finally land:
- ```
- $ rosrun quad_control quad_controller
- ```
+ 3. As an interface with the Gazebo simulation, among the various topics, you can use two: "/hummingbird/ground_truth/odometryNED" and "/hummingbird/command/wrenchNED".
