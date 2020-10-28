@@ -11,7 +11,6 @@
       (even when Gazebo is started through roslaunch) -->
   <arg name="verbose" default="false"/>
   <arg name="rvizconfig" default="$(find quad_control)/drone.rviz" />
-  <arg name="arenabt" default="$(find quad_control)/arena.bt" />
   <param name="arena_path" type="string" value="$(arg arenabt)" />
 
 

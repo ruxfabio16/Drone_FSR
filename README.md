@@ -1,5 +1,5 @@
 # Quadrotor Library
-The ned_plugin folder contains the source code for the ned_conv gazebo world plugin used to convert the ENU odometry and Force/Torque commands into NED ones. You can put your code inside the quad_control folder. All the other folders are from the [RotorS MAV simulator](https://github.com/ethz-asl/rotors_simulator) and provide the dynamic Gazebo model of the [AscTec Hummingbird](http://www.asctec.de/en/uav-uas-drone-products/asctec-hummingbird/) quadcopter.
+The ned_plugin folder contains the source code for the ned_conv gazebo world plugin used to convert the ENU odometry and Force/Torque commands into NED ones. This plugin is already included in the provided arena.world file. You can put your code inside the quad_control folder. All the other folders are from the [RotorS MAV simulator](https://github.com/ethz-asl/rotors_simulator) and provide the dynamic Gazebo model of the [AscTec Hummingbird](http://www.asctec.de/en/uav-uas-drone-products/asctec-hummingbird/) quadcopter.
 
 ## Prerequisites
 You will need all the packages on which the RotorS library already depends.
