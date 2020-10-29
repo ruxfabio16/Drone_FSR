@@ -21,6 +21,10 @@ For the mathematical computation, is also needed the Eigen library http://eigen.
     ```
 
  2. You will need to create your flying arena in Gazebo. To do that, you can just modify the *arena.world* file inside *quad_control/worlds* folder.
+    - **NB.** If you already have your own .world file working in simulation with the RotorS Hummingbird quadrotor, you can just add inside your .world file, between the `<world></world>` tags, the following line. This is the plugin you obtain when compiling the *ned_plugin* folder. This plugin creates the two topics explained at (4).
+    ```
+     <plugin name='ned_conversions' filename='libned_conv.so'/>
+    ```
 
  3. The two most important reference frames are **worldNED** and **hummingbird/base_linkNED**. The goal of the project is to generate a trajectory and control the quadrotor in order to move the **hummingbird/base_linkNED** (attached to the quadrotor body) with respect to **worldNED** (the fixed frame in the world).
 
