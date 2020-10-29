@@ -48,3 +48,6 @@ For the mathematical computation, is also needed the Eigen library http://eigen.
      ```
      $ rosrun rqt_bag rqt_bag
      ```
+
+## Acknowledgements
+The code in the folders *ned_plugin* and *quad_control* has been created by [Eugenio Cuniato](https://github.com/ecuniato) under the supervision of [Fabio Ruggiero](http://www.fabioruggiero.name/web/index.php/en) and [Jonathan Cacace](http://wpage.unina.it/jonathan.cacace/).
