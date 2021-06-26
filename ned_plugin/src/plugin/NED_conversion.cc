@@ -37,7 +37,7 @@ namespace gazebo
 
     double _l = 0.17; //meters
     double _c_T = 8.06428e-06;
-    double _c_a = -0.000001;
+    double _c_a = -0.016*_c_T;
 
     _G(0,0) = _c_T;    _G(0,1) = _c_T;    _G(0,2) = _c_T; _G(0,3) = _c_T;
     _G(1,0) = 0;       _G(1,1) = _l*_c_T; _G(1,2) = 0;    _G(1,3) = -_l*_c_T;
